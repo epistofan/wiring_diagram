@@ -348,6 +348,10 @@ const T = {
   PLC: {name:'Контроллер (PLC)', pre:'A', val:'S7-1215C', pins:[['L+',-80,0]], box:[-80,-30,160,60], noIo:true,
         d:'<rect x="-30" y="-22" width="60" height="44"/><path d="M-40 -10H-30M-40 0H-30M-40 10H-30M30 -10H40M30 0H40M30 10H40"/><text x="0" y="5" text-anchor="middle" class="fill" style="stroke:none;font:bold 12px sans-serif">PLC</text>',
         dyn:Object.assign(c=>plcLayout(c),{key:c=>JSON.stringify([c.ndi,c.ndq,c.nai,c.naq,c.pw,c.pp])})},
+  // модуль аналоговых входов S7-1200 SM 1231 AI4 / AI8: питание L+ M, каналы парами 0+ 0−…; адреса IW с начального (слот 2 — 96, слот 3 — 112…)
+  SM:  {name:'Модуль AI (SM 1231)', dev:'Модуль аналоговых входов', pre:'A', val:'SM 1231 AI4', pins:[['L+',-80,0]], box:[-80,-30,160,60], noIo:true,
+        d:'<rect x="-40" y="-22" width="80" height="44"/><path d="M-50 -10H-40M-50 0H-40M-50 10H-40"/><text x="0" y="-2" text-anchor="middle" class="fill" style="stroke:none;font:bold 11px sans-serif">SM 1231</text><text x="0" y="12" text-anchor="middle" class="fill" style="stroke:none;font:10px sans-serif">AI</text>',
+        dyn:Object.assign(c=>smLayout(c),{key:c=>JSON.stringify([c.nch,c.base,c.pw,c.pp])})},
   // ——— пневматика (ISO 1219 / ГОСТ 2.781): порты 'n' — сжатый воздух, зелёные линии ———
   PIN: {name:'Ввод воздуха', pre:'IN', val:'Воздух 6 бар', k:'П', pins:[['вых',40,0,'n']], box:[-36,-12,76,24], lx:-36, ly:-18,
         d:'<path d="M-36 -10H-10L0 0L-10 10H-36Z"/><path class="pa" d="M0 0H40"/><path class="paw" d="M16 -7L30 0L16 7Z"/>'},
@@ -389,7 +393,7 @@ const T = {
 };
 
 // вид листа: Э — электрическая, Г — гидравлическая, С — совмещённая (всё, кроме раздельных представлений)
-['R','C','VD','HL','HLL','M1','M3','QF','TV','G','BAR','BP','BFE','PLC','EIN','EOUT','SBO','SBC','SA','GB','KNO','KNC','K','KM','KA','GND','VCC'].forEach(k=>T[k].k='Э');
+['R','C','VD','HL','HLL','M1','M3','QF','TV','G','BAR','BP','BFE','PLC','SM','EIN','EOUT','SBO','SBC','SA','GB','KNO','KNC','K','KM','KA','GND','VCC'].forEach(k=>T[k].k='Э');
 Object.assign(T.BP,{pair:['BPH','BPP'], dev:'Датчик давления', short:'4…20 мА', prio:1});
 T.YVE.pair=['YVH','YVP'];
 // описание элемента для конкретного экземпляра: у контроллера выводы и размер зависят от числа входов/выходов
@@ -403,22 +407,38 @@ const plcN=(c,k)=>{ const n=parseInt(c[k],10); return Number.isFinite(n)?Math.ma
 // размер корпуса задаётся ручкой: pw — полуширина корпуса, pp — шаг выводов; оба кратны сетке, чтобы выводы оставались на ней
 const PLC_W=[40,300], PLC_P=[20,100];
 const clampG=(v,[a,b],d)=>{ const n=parseInt(v,10); return Number.isFinite(n)?Math.max(a,Math.min(b,Math.round(n/G)*G)):d; };
-function plcLayout(c){
-  const ndi=plcN(c,'ndi'), ndq=plcN(c,'ndq'), nai=plcN(c,'nai'), naq=plcN(c,'naq');
+// корпус модуля S7-1200: выводы L слева, R справа, подпись вывода — lbl(p) (по умолчанию имя), размер — ручкой (pw/pp)
+function modLayout(c, L, R, lbl=p=>p){
   const hw=clampG(c.pw,PLC_W,60), P=clampG(c.pp,PLC_P,G), xo=hw+G;   // xo — x концов выводов
-  const bit=(p,i)=>`${p}${Math.floor(i/8)}.${i%8}`;
-  const L=['L+','M', ...Array.from({length:ndi},(_,i)=>bit('I',i)), ...Array.from({length:nai},(_,i)=>`IW${64+2*i}`)];
-  const R=[...Array.from({length:ndq},(_,i)=>bit('Q',i)), ...Array.from({length:naq},(_,i)=>`QW${64+2*i}`)];
   const n=Math.max(L.length,R.length,1), top=-Math.floor((n-1)/2)*P, y0=top-G, y1=top+(n-1)*P+G;
   const pins=[...L.map((p,i)=>[p,-xo,top+i*P]), ...R.map((p,i)=>[p,xo,top+i*P])];
   const txt=(x,y,s,a)=>`<text x="${x}" y="${y+3.5}" text-anchor="${a}" class="fill" style="stroke:none;font:10px monospace">${s}</text>`;
   let d=`<rect x="${-hw}" y="${y0}" width="${2*hw}" height="${y1-y0}"/>`;
   d+=`<path d="${L.map((_,i)=>`M${-xo} ${top+i*P}H${-hw}`).join('')}${R.map((_,i)=>`M${hw} ${top+i*P}H${xo}`).join('')}"/>`;
-  L.forEach((p,i)=>{ d+=txt(-hw+4,top+i*P,p,'start'); }); R.forEach((p,i)=>{ d+=txt(hw-4,top+i*P,p,'end'); });
-  if(L.length>2) d+=`<path d="M${-hw} ${top+P*1.5}H${Math.min(-hw+40,-4)}" stroke-dasharray="2 3"/>`;   // отделяем питание от входов
+  L.forEach((p,i)=>{ d+=txt(-hw+4,top+i*P,lbl(p),'start'); }); R.forEach((p,i)=>{ d+=txt(hw-4,top+i*P,lbl(p),'end'); });
+  if(L.length>2&&L[1]==='M') d+=`<path d="M${-hw} ${top+P*1.5}H${Math.min(-hw+40,-4)}" stroke-dasharray="2 3"/>`;   // отделяем питание от входов
   // k — во сколько шагов от центра до нижнего края: по нему ручка пересчитывает шаг
   return {pins, box:[-xo,y0-4,2*xo,y1-y0+8], ly:y0-8, vb:y1+16, d, rsz:[hw,y1], rk:(n-1)-Math.floor((n-1)/2)};
 }
+function plcLayout(c){
+  const ndi=plcN(c,'ndi'), ndq=plcN(c,'ndq'), nai=plcN(c,'nai'), naq=plcN(c,'naq');
+  const bit=(p,i)=>`${p}${Math.floor(i/8)}.${i%8}`;
+  const L=['L+','M', ...Array.from({length:ndi},(_,i)=>bit('I',i)), ...Array.from({length:nai},(_,i)=>`IW${64+2*i}`)];
+  const R=[...Array.from({length:ndq},(_,i)=>bit('Q',i)), ...Array.from({length:naq},(_,i)=>`QW${64+2*i}`)];
+  return modLayout(c,L,R);
+}
+// SM 1231 AI: nch каналов (1…8, обычно 4 или 8), base — начальный адрес IW (чётный); оба вывода канала дают один адрес
+const smCh=c=>{ const n=parseInt(c.nch,10); return Number.isFinite(n)?Math.max(1,Math.min(8,n)):4; };
+const smBase=c=>{ const n=parseInt(c.base,10); return Number.isFinite(n)?Math.max(0,Math.min(1022,n-n%2)):96; };
+function smLayout(c){
+  const n=smCh(c), b=smBase(c), addr={};
+  const L=['L+','M'];
+  for(let i=0;i<n;i++){ L.push(i+'+', i+'−'); addr[i+'+']=addr[i+'−']=`IW${b+2*i}`; }
+  return {...modLayout(c,L,[],p=>p.endsWith('+')&&addr[p]?`${p.padEnd(3)}${addr[p]}`:p), addr};
+}
+// модули с адресами на выводах: адрес вывода — addr[p] или само имя вывода (у CPU имя и есть адрес)
+const IOMOD=new Set(['PLC','SM']);
+const pinAddr=(t,p)=>(t.addr&&t.addr[p])||p;
 const CT=new Set(['K','KNO','KNC']);   // контакты: их у одного реле может быть много, номинал с катушкой не синхронизируем
 const pairsOf=type=>[].concat(T[type].pair||[]);
 ['FW','BV','HIN','HOUT'].forEach(k=>T[k].k='Г');
@@ -475,7 +495,7 @@ function migrate(d){
     if(!c.sheet||!d.sheets.some(s=>s.id===c.sheet)) c.sheet=d.sheets[0].id;
     c.x=num(c.x); c.y=num(c.y); c.rot=[0,90,180,270].includes(num(c.rot))?num(c.rot):0;
     ['ref','val','note','io','pos','lead'].forEach(k=>{ if(c[k]!==undefined) c[k]=str(c[k]); });
-    ['tx','ty','pw','pp','ndi','ndq','nai','naq'].forEach(k=>{ if(c[k]!==undefined) c[k]=num(c[k]); });
+    ['tx','ty','pw','pp','ndi','ndq','nai','naq','nch','base'].forEach(k=>{ if(c[k]!==undefined) c[k]=num(c[k]); });
   });
   const byId=new Map(d.comps.map(c=>[c.id,c]));
   // провода: оба конца существуют, на одном листе, вывод есть у элемента; иначе провод выбрасываем
@@ -512,9 +532,9 @@ const isAutoIO=c=>!c.io&&!(c.type==='K'||c.type==='KM')&&AUTOIO.has(c.id);
 // Автоадрес: от каждого вывода контроллера идём по цепи (все листы, флажки линий с одинаковым именем — одна цепь,
 // сквозь барьер — с выхода 7/8 на вход 1/3) и отдаём адрес самому подходящему устройству в этой цепи.
 const IN_PRI=['BP','BFE','SPE','SP','SBO','SBC','SA','KNO','KNC','K'], OUT_PRI=['RDE','YVE','YV','HLL','HL','KA','KM'];
-const NOT_DEV=new Set(['PLC','BAR','EIN','EOUT','GND','VCC','HIN','HOUT','PIN','POUT','NOTE']);
+const NOT_DEV=new Set(['PLC','SM','BAR','EIN','EOUT','GND','VCC','HIN','HOUT','PIN','POUT','NOTE']);
 function autoIO(){
-  const plcs=S.comps.filter(c=>c.type==='PLC'); if(!plcs.length) return new Map();
+  const plcs=S.comps.filter(c=>IOMOD.has(c.type)); if(!plcs.length) return new Map();
   const par={}, f=k=>{ if(par[k]===undefined) par[k]=k; return par[k]===k?k:(par[k]=f(par[k])); }, uni=(a,b)=>{ par[f(a)]=f(b); };
   S.wires.forEach(w=>uni(w.a.join(':'),w.b.join(':')));
   const byName={};
@@ -522,17 +542,18 @@ function autoIO(){
   const groups={}; Object.keys(par).forEach(k=>{ (groups[f(k)] ||= []).push(k); });
   const members=k=>par[k]===undefined?[]:groups[f(k)];
   const out=new Map();
-  plcs.forEach(plc=>TP(plc).pins.forEach(([p])=>{
-    if(p==='L+'||p==='M') return;
+  plcs.forEach(plc=>{ const tp=TP(plc); tp.pins.forEach(([p])=>{
+    const a=pinAddr(tp,p); if(!IORE.test(a)) return;   // L+, M — не адреса
+    if(tp.addr&&p.endsWith('−')) return;   // «−» канала часто сидит на общем M — по нему датчик не ищем, только по «+»
     const keys=members(plc.id+':'+p); if(!keys.length) return;
     const extra=[];
     keys.forEach(k=>{ const [id,pp]=k.split(':'), o=comp(id); if(o&&o.type==='BAR'&&(pp==='7'||pp==='8')) extra.push(...members(id+':1'),...members(id+':3')); });
     const cands=[...new Set([...keys,...extra].map(k=>k.split(':')[0]))].map(comp).filter(o=>o&&!NOT_DEV.has(o.type));
     if(!cands.length) return;
-    const pri=p.startsWith('Q')?OUT_PRI:IN_PRI, rank=o=>{ const i=pri.indexOf(o.type); return i<0?99:i; };
-    cands.sort((a,b)=>rank(a)-rank(b));
-    if(!out.has(cands[0].id)) out.set(cands[0].id,p);
-  }));
+    const pri=a.startsWith('Q')?OUT_PRI:IN_PRI, rank=o=>{ const i=pri.indexOf(o.type); return i<0?99:i; };
+    cands.sort((x,y)=>rank(x)-rank(y));
+    if(!out.has(cands[0].id)) out.set(cands[0].id,a);
+  }); });
   return out;
 }
 const csvq=v=>/[;"\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v);
@@ -870,8 +891,9 @@ function renderProps(){
       ${c.type==='NOTE'?`<div class="field"><label for="f-lead">Выноска</label><select id="f-lead">${[['dot','с точкой'],['arrow','со стрелкой'],['none','без выноски']].map(([v,l])=>`<option value="${v}"${(c.lead||'dot')===v?' selected':''}>${l}</option>`).join('')}</select></div><p class="muted" style="margin-bottom:6px">Тяни кружок на конце выноски, чтобы указать нужное место. Новая строка — Enter.</p>`:''}
       ${EFLAG.has(c.type)?`<datalist id="netnames">${[...new Set(['L1','L2','L3','N','PE','+24 В','0 В',...S.comps.filter(o=>EFLAG.has(o.type)||o.type==='VCC').map(o=>o.val).filter(Boolean)])].map(v=>`<option value="${esc(v)}">`).join('')}</datalist><p class="muted" style="margin-bottom:6px">Флажки с одинаковым именем — одна цепь, даже на разных листах.</p>`:''}
       ${BOM_SKIP.has(c.type)?'':`<div class="field"><label for="f-note">Примечание</label><input id="f-note" value="${esc(c.note||'')}" placeholder="в перечень"></div>`}
-      ${c.type==='PLC'?[['ndi','Входы DI'],['ndq','Выходы DQ'],['nai','Входы AI'],['naq','Выходы AQ']].map(([k,l])=>`<div class="field"><label for="f-${k}">${l}</label><input id="f-${k}" type="number" min="0" max="32" value="${plcN(c,k)}"></div>`).join('')+'<p class="muted" style="margin-bottom:6px">Адреса как у S7-1200: I0.0…, Q0.0…, аналоговые IW64… и QW64….</p>'
-        +`<p class="muted" style="margin-bottom:6px">Размер: тяни квадратик в углу корпуса — вбок ширина, вниз шаг выводов. Сейчас ${2*clampG(c.pw,PLC_W,60)}×шаг ${clampG(c.pp,PLC_P,G)}.</p>`
+      ${c.type==='PLC'?[['ndi','Входы DI'],['ndq','Выходы DQ'],['nai','Входы AI'],['naq','Выходы AQ']].map(([k,l])=>`<div class="field"><label for="f-${k}">${l}</label><input id="f-${k}" type="number" min="0" max="32" value="${plcN(c,k)}"></div>`).join('')+'<p class="muted" style="margin-bottom:6px">Адреса как у S7-1200: I0.0…, Q0.0…, аналоговые IW64… и QW64….</p>':''}
+      ${c.type==='SM'?`<div class="field"><label for="f-nch">Каналов</label><input id="f-nch" type="number" min="1" max="8" value="${smCh(c)}"></div><div class="field"><label for="f-base">Адрес IW</label><input id="f-base" type="number" min="0" max="1022" step="2" value="${smBase(c)}"></div><p class="muted" style="margin-bottom:6px">Каналы IW${smBase(c)}…IW${smBase(c)+2*(smCh(c)-1)}. Начальный адрес — как в конфигурации TIA: слот 2 — 96, слот 3 — 112, слот 4 — 128. Датчик ищется по выводу «+» канала.</p>`:''}
+      ${t.rsz?`<p class="muted" style="margin-bottom:6px">Размер: тяни квадратик в углу корпуса — вбок ширина, вниз шаг выводов. Сейчас ${2*clampG(c.pw,PLC_W,60)}×шаг ${clampG(c.pp,PLC_P,G)}.</p>`
         +((c.pw!==undefined||c.pp!==undefined)?'<div class="row" style="margin-bottom:6px"><button id="b-plcrst">↺ Размер по умолчанию</button></div>':''):''}
       ${!BOM_SKIP.has(c.type)&&t.k!=='Г'&&c.type!=='K'&&c.type!=='KM'&&!t.noIo?`<div class="field"><label for="f-io">Адрес PLC</label><input id="f-io" value="${esc(c.io||'')}" placeholder="${AUTOIO.has(c.id)?'авто: '+AUTOIO.get(c.id):'I0.1 / Q0.0'}" title="Пусто — адрес берётся по подключению к контроллеру"></div>`:''}
       ${RC.has(c.type)?`<div class="field"><label for="f-pos">№ контакта</label><input id="f-pos" value="${esc(c.pos||'')}" placeholder="авто: ${contactPos(c)}" inputmode="numeric"></div>`:''}
@@ -889,6 +911,13 @@ function renderProps(){
     // число каналов контроллера: провода к исчезнувшим выводам убираем
     ['ndi','ndq','nai','naq'].forEach(k=>{ const i=document.getElementById('f-'+k); if(!i) return;
       i.addEventListener('change',()=>{ push(); c[k]=plcN({[k]:i.value},k);
+        const before=S.wires.length;
+        S.wires=S.wires.filter(w=>[w.a,w.b].every(([id,p])=>{ const o=comp(id); return !o||TP(o).pins.some(q=>q[0]===p); }));
+        render(); save(); if(S.wires.length<before) toast(`Убрано проводов к исчезнувшим выводам: ${before-S.wires.length}. Вернуть — «Отменить»`); }); });
+    // модуль AI: число каналов (лишние провода убираем, типовой номинал AI4/AI8 подстраиваем) и начальный адрес
+    [['nch',smCh],['base',smBase]].forEach(([k,fn])=>{ const i=document.getElementById('f-'+k); if(!i) return;
+      i.addEventListener('change',()=>{ push(); c[k]=fn({[k]:i.value});
+        if(k==='nch'&&/^SM 1231 AI[48]$/.test(c.val)&&(smCh(c)===4||smCh(c)===8)) c.val=`SM 1231 AI${smCh(c)}`;   // только реальные варианты AI4 / AI8
         const before=S.wires.length;
         S.wires=S.wires.filter(w=>[w.a,w.b].every(([id,p])=>{ const o=comp(id); return !o||TP(o).pins.some(q=>q[0]===p); }));
         render(); save(); if(S.wires.length<before) toast(`Убрано проводов к исчезнувшим выводам: ${before-S.wires.length}. Вернуть — «Отменить»`); }); });
@@ -1218,7 +1247,7 @@ const GROUPS=[
   ['Коммутация',   ['SA','SBO','SBC','KNO','KNC','K']],
   ['Реле и нагрузки',['KA','KM','YVE','RDE','HLL','HL','M1','M3']],
   ['Датчики',      ['BP','BFE','SPE','SP']],
-  ['Автоматика',   ['PLC','BAR']],
+  ['Автоматика',   ['PLC','SM','BAR']],
   ['Пассивные',    ['R','C','VD']],
   ['Гидравлика',   ['HIN','HOUT','BV','FW','YVH','SPH','BPH','YV']],
   ['Пневматика',   ['PIN','POUT','VP','KR','RD','YVP','BPP','BFP']],
