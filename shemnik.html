@@ -64,6 +64,8 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:1fr 290px;gap:10px}
 .lbl.tn{fill:var(--muted);font-size:9px}
 .lbl.nm{font-weight:600}
 .tiph{fill:var(--sheet);stroke:var(--accent);stroke-width:2;cursor:move}
+.rszh{fill:var(--sheet);stroke:var(--accent);stroke-width:2;cursor:nwse-resize}
+.rszh:hover{fill:var(--accent)}
 .lbl.xr.go{pointer-events:auto;cursor:pointer;text-decoration:underline}
 .net li.bad b{color:var(--pin)}
 /* редактор штампа */
@@ -345,7 +347,7 @@ const T = {
   // контроллер: число входов/выходов задаётся у экземпляра, выводы подписаны адресами S7-1200
   PLC: {name:'Контроллер (PLC)', pre:'A', val:'S7-1215C', pins:[['L+',-80,0]], box:[-80,-30,160,60], noIo:true,
         d:'<rect x="-30" y="-22" width="60" height="44"/><path d="M-40 -10H-30M-40 0H-30M-40 10H-30M30 -10H40M30 0H40M30 10H40"/><text x="0" y="5" text-anchor="middle" class="fill" style="stroke:none;font:bold 12px sans-serif">PLC</text>',
-        dyn:c=>plcLayout(c)},
+        dyn:Object.assign(c=>plcLayout(c),{key:c=>JSON.stringify([c.ndi,c.ndq,c.nai,c.naq,c.pw,c.pp])})},
   // ——— пневматика (ISO 1219 / ГОСТ 2.781): порты 'n' — сжатый воздух, зелёные линии ———
   PIN: {name:'Ввод воздуха', pre:'IN', val:'Воздух 6 бар', k:'П', pins:[['вых',40,0,'n']], box:[-36,-12,76,24], lx:-36, ly:-18,
         d:'<path d="M-36 -10H-10L0 0L-10 10H-36Z"/><path class="pa" d="M0 0H40"/><path class="paw" d="M16 -7L30 0L16 7Z"/>'},
@@ -398,19 +400,24 @@ function TP(c){ const t=T[c.type]; if(!t.dyn) return t;
   const v=Object.assign(Object.create(t), t.dyn(c)); tpCache.set(c,{key,v}); return v; }
 const PLCDEF={ndi:8, ndq:6, nai:2, naq:0};
 const plcN=(c,k)=>{ const n=parseInt(c[k],10); return Number.isFinite(n)?Math.max(0,Math.min(32,n)):PLCDEF[k]; };
+// размер корпуса задаётся ручкой: pw — полуширина корпуса, pp — шаг выводов; оба кратны сетке, чтобы выводы оставались на ней
+const PLC_W=[40,300], PLC_P=[20,100];
+const clampG=(v,[a,b],d)=>{ const n=parseInt(v,10); return Number.isFinite(n)?Math.max(a,Math.min(b,Math.round(n/G)*G)):d; };
 function plcLayout(c){
   const ndi=plcN(c,'ndi'), ndq=plcN(c,'ndq'), nai=plcN(c,'nai'), naq=plcN(c,'naq');
+  const hw=clampG(c.pw,PLC_W,60), P=clampG(c.pp,PLC_P,G), xo=hw+G;   // xo — x концов выводов
   const bit=(p,i)=>`${p}${Math.floor(i/8)}.${i%8}`;
   const L=['L+','M', ...Array.from({length:ndi},(_,i)=>bit('I',i)), ...Array.from({length:nai},(_,i)=>`IW${64+2*i}`)];
   const R=[...Array.from({length:ndq},(_,i)=>bit('Q',i)), ...Array.from({length:naq},(_,i)=>`QW${64+2*i}`)];
-  const n=Math.max(L.length,R.length,1), top=-Math.floor((n-1)/2)*G, y0=top-G, y1=top+(n-1)*G+G;
-  const pins=[...L.map((p,i)=>[p,-80,top+i*G]), ...R.map((p,i)=>[p,80,top+i*G])];
+  const n=Math.max(L.length,R.length,1), top=-Math.floor((n-1)/2)*P, y0=top-G, y1=top+(n-1)*P+G;
+  const pins=[...L.map((p,i)=>[p,-xo,top+i*P]), ...R.map((p,i)=>[p,xo,top+i*P])];
   const txt=(x,y,s,a)=>`<text x="${x}" y="${y+3.5}" text-anchor="${a}" class="fill" style="stroke:none;font:10px monospace">${s}</text>`;
-  let d=`<rect x="-60" y="${y0}" width="120" height="${y1-y0}"/>`;
-  d+=`<path d="${L.map((_,i)=>`M-80 ${top+i*G}H-60`).join('')}${R.map((_,i)=>`M60 ${top+i*G}H80`).join('')}"/>`;
-  L.forEach((p,i)=>{ d+=txt(-56,top+i*G,p,'start'); }); R.forEach((p,i)=>{ d+=txt(56,top+i*G,p,'end'); });
-  if(L.length>2) d+=`<path d="M-60 ${top+G*1.5}H-20" stroke-dasharray="2 3"/>`;   // отделяем питание от входов
-  return {pins, box:[-80,y0-4,160,y1-y0+8], ly:y0-8, vb:y1+16, d};
+  let d=`<rect x="${-hw}" y="${y0}" width="${2*hw}" height="${y1-y0}"/>`;
+  d+=`<path d="${L.map((_,i)=>`M${-xo} ${top+i*P}H${-hw}`).join('')}${R.map((_,i)=>`M${hw} ${top+i*P}H${xo}`).join('')}"/>`;
+  L.forEach((p,i)=>{ d+=txt(-hw+4,top+i*P,p,'start'); }); R.forEach((p,i)=>{ d+=txt(hw-4,top+i*P,p,'end'); });
+  if(L.length>2) d+=`<path d="M${-hw} ${top+P*1.5}H${Math.min(-hw+40,-4)}" stroke-dasharray="2 3"/>`;   // отделяем питание от входов
+  // k — во сколько шагов от центра до нижнего края: по нему ручка пересчитывает шаг
+  return {pins, box:[-xo,y0-4,2*xo,y1-y0+8], ly:y0-8, vb:y1+16, d, rsz:[hw,y1], rk:(n-1)-Math.floor((n-1)/2)};
 }
 const CT=new Set(['K','KNO','KNC']);   // контакты: их у одного реле может быть много, номинал с катушкой не синхронизируем
 const pairsOf=type=>[].concat(T[type].pair||[]);
@@ -468,7 +475,7 @@ function migrate(d){
     if(!c.sheet||!d.sheets.some(s=>s.id===c.sheet)) c.sheet=d.sheets[0].id;
     c.x=num(c.x); c.y=num(c.y); c.rot=[0,90,180,270].includes(num(c.rot))?num(c.rot):0;
     ['ref','val','note','io','pos','lead'].forEach(k=>{ if(c[k]!==undefined) c[k]=str(c[k]); });
-    ['tx','ty'].forEach(k=>{ if(c[k]!==undefined) c[k]=num(c[k]); });
+    ['tx','ty','pw','pp','ndi','ndq','nai','naq'].forEach(k=>{ if(c[k]!==undefined) c[k]=num(c[k]); });
   });
   const byId=new Map(d.comps.map(c=>[c.id,c]));
   // провода: оба конца существуют, на одном листе, вывод есть у элемента; иначе провод выбрасываем
@@ -719,6 +726,9 @@ function compSVG(c, forExport){
     lbl+=`<text class="lbl tn" x="${x+off[0]}" y="${y+off[1]}" text-anchor="${vert?'start':'middle'}">${esc(pinLabel(c,p))}</text>`; });
   // сноска: ручка на кончике выноски (только у выделенной)
   if(c.type==='NOTE'&&s&&!forExport&&t.tip) lbl+=`<circle class="tiph" data-tip="${c.id}" cx="${t.tip[0]}" cy="${t.tip[1]}" r="7"/>`;
+  // контроллер: ручка размера в углу корпуса (вбок — ширина, вниз — шаг выводов)
+  if(t.rsz&&s&&!forExport){ const [hx,hy]=rp(t.rsz[0],t.rsz[1],c.rot);
+    lbl+=`<rect class="rszh" data-rsz="${c.id}" x="${hx-7}" y="${hy-7}" width="14" height="14" rx="2"><title>Тяни: вбок — ширина корпуса, вниз — шаг выводов</title></rect>`; }
   let pins='';
   if(!forExport) t.pins.forEach(([p,px,py,k])=>{
     const [x,y]=rp(px,py,c.rot), key=c.id+':'+p;
@@ -860,7 +870,9 @@ function renderProps(){
       ${c.type==='NOTE'?`<div class="field"><label for="f-lead">Выноска</label><select id="f-lead">${[['dot','с точкой'],['arrow','со стрелкой'],['none','без выноски']].map(([v,l])=>`<option value="${v}"${(c.lead||'dot')===v?' selected':''}>${l}</option>`).join('')}</select></div><p class="muted" style="margin-bottom:6px">Тяни кружок на конце выноски, чтобы указать нужное место. Новая строка — Enter.</p>`:''}
       ${EFLAG.has(c.type)?`<datalist id="netnames">${[...new Set(['L1','L2','L3','N','PE','+24 В','0 В',...S.comps.filter(o=>EFLAG.has(o.type)||o.type==='VCC').map(o=>o.val).filter(Boolean)])].map(v=>`<option value="${esc(v)}">`).join('')}</datalist><p class="muted" style="margin-bottom:6px">Флажки с одинаковым именем — одна цепь, даже на разных листах.</p>`:''}
       ${BOM_SKIP.has(c.type)?'':`<div class="field"><label for="f-note">Примечание</label><input id="f-note" value="${esc(c.note||'')}" placeholder="в перечень"></div>`}
-      ${c.type==='PLC'?[['ndi','Входы DI'],['ndq','Выходы DQ'],['nai','Входы AI'],['naq','Выходы AQ']].map(([k,l])=>`<div class="field"><label for="f-${k}">${l}</label><input id="f-${k}" type="number" min="0" max="32" value="${plcN(c,k)}"></div>`).join('')+'<p class="muted" style="margin-bottom:6px">Адреса как у S7-1200: I0.0…, Q0.0…, аналоговые IW64… и QW64….</p>':''}
+      ${c.type==='PLC'?[['ndi','Входы DI'],['ndq','Выходы DQ'],['nai','Входы AI'],['naq','Выходы AQ']].map(([k,l])=>`<div class="field"><label for="f-${k}">${l}</label><input id="f-${k}" type="number" min="0" max="32" value="${plcN(c,k)}"></div>`).join('')+'<p class="muted" style="margin-bottom:6px">Адреса как у S7-1200: I0.0…, Q0.0…, аналоговые IW64… и QW64….</p>'
+        +`<p class="muted" style="margin-bottom:6px">Размер: тяни квадратик в углу корпуса — вбок ширина, вниз шаг выводов. Сейчас ${2*clampG(c.pw,PLC_W,60)}×шаг ${clampG(c.pp,PLC_P,G)}.</p>`
+        +((c.pw!==undefined||c.pp!==undefined)?'<div class="row" style="margin-bottom:6px"><button id="b-plcrst">↺ Размер по умолчанию</button></div>':''):''}
       ${!BOM_SKIP.has(c.type)&&t.k!=='Г'&&c.type!=='K'&&c.type!=='KM'&&!t.noIo?`<div class="field"><label for="f-io">Адрес PLC</label><input id="f-io" value="${esc(c.io||'')}" placeholder="${AUTOIO.has(c.id)?'авто: '+AUTOIO.get(c.id):'I0.1 / Q0.0'}" title="Пусто — адрес берётся по подключению к контроллеру"></div>`:''}
       ${RC.has(c.type)?`<div class="field"><label for="f-pos">№ контакта</label><input id="f-pos" value="${esc(c.pos||'')}" placeholder="авто: ${contactPos(c)}" inputmode="numeric"></div>`:''}
       <p class="muted">Выводы: ${t.pins.map(p=>pinLabel(c,p[0])).join(', ')} · поворот ${c.rot}° · лист ${sheetNo(sheetOf(c))}</p>
@@ -880,6 +892,7 @@ function renderProps(){
         const before=S.wires.length;
         S.wires=S.wires.filter(w=>[w.a,w.b].every(([id,p])=>{ const o=comp(id); return !o||TP(o).pins.some(q=>q[0]===p); }));
         render(); save(); if(S.wires.length<before) toast(`Убрано проводов к исчезнувшим выводам: ${before-S.wires.length}. Вернуть — «Отменить»`); }); });
+    const pr=document.getElementById('b-plcrst'); if(pr) pr.onclick=()=>{ push(); delete c.pw; delete c.pp; render(); save(); };
     el.querySelectorAll('[data-rep]').forEach(b=>{ b.onclick=()=>addRep(c,b.dataset.rep); });
   } else if(sel&&sel.k==='w'){ const w=S.wires.find(x=>x.id===sel.id);
     const n=e=>comp(e[0]).ref+'.'+pinLabel(comp(e[0]),e[1]);
@@ -1077,6 +1090,8 @@ svg.addEventListener('pointerdown',e=>{
   const pin=e.target.closest('[data-pin]'), cg=e.target.closest('[data-comp]'), wg=e.target.closest('[data-wire]'), sg=e.target.closest('[data-seg]');
   const tg=e.target.closest('[data-tip]');
   if(tg){ drag={t:'tip', c:comp(tg.dataset.tip), pushed:false}; return; }
+  const rg=e.target.closest('[data-rsz]');
+  if(rg){ drag={t:'rsz', c:comp(rg.dataset.rsz), pushed:false}; return; }
   const xg=e.target.closest('[data-xref]');
   if(xg){ const o=comp(xg.dataset.xref); if(o){ switchSheet(sheetOf(o), o.id); save(); } return; }
   const bt=e.target.closest('[data-bom]');
@@ -1120,6 +1135,10 @@ svg.addEventListener('pointermove',e=>{
     gc.innerHTML=curComps().map(c=>compSVG(c)).join(''); return; }
   if(drag.t==='tip'){ const c=drag.c, nx=Math.round((x-c.x)/10)*10, ny=Math.round((y-c.y)/10)*10;
     if(nx!==+c.tx||ny!==+c.ty){ if(!drag.pushed){ push(); drag.pushed=true; } c.tx=nx; c.ty=ny; render(); } return; }
+  if(drag.t==='rsz'){ const c=drag.c, t=TP(c), [lx,ly]=rp(x-c.x, y-c.y, (360-c.rot)%360);   // в координаты корпуса без поворота
+    const pw=clampG(Math.abs(lx),PLC_W,60), pp=t.rk>0?clampG((ly-G)/t.rk,PLC_P,G):clampG(c.pp,PLC_P,G);
+    if(pw!==clampG(c.pw,PLC_W,60)||pp!==clampG(c.pp,PLC_P,G)){ if(!drag.pushed){ push(); drag.pushed=true; }
+      c.pw=pw; c.pp=pp; render(); } return; }
   if(drag.t==='group'){ const dx=Math.round((x-drag.x0)/G)*G, dy=Math.round((y-drag.y0)/G)*G;
     if(dx===drag.dx&&dy===drag.dy) return; if(!drag.pushed){ push(); drag.pushed=true; }
     drag.dx=dx; drag.dy=dy;
@@ -1158,7 +1177,7 @@ function endPtr(e){
   }
   if(drag.t==='pan'&&!drag.moved){ sel=null; pending=null; render(); }
   if(drag.t==='box'){ go.innerHTML=''; if(!drag.moved&&!drag.add) sel=null; render(); }
-  if((drag.t==='group'||drag.t==='tip')&&drag.pushed) save();
+  if((drag.t==='group'||drag.t==='tip'||drag.t==='rsz')&&drag.pushed) save();
   if(drag.t==='comp'||drag.t==='bom') save();
   if(drag.t==='seg'&&drag.started){ const w=drag.w; w.pts=simplify(w.pts);
     if(w.pts.length<3||!anchorPinned(w)) delete w.pts;   // выпрямили в прямую — снова авто
