@@ -1,3 +1,7 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Схемник</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@400;600&display=swap">
 <style>
@@ -443,12 +447,49 @@ function noteLayout(c){
 const KIND={Э:'Э — электрическая', Г:'Г — гидравлическая', П:'П — пневматическая', С:'совмещённая'};
 const defStamp=()=>({code:'', title:'', org:'', litera:'', people:{}});
 const blank=()=>({comps:[], wires:[], n:1, sheets:[{id:'s1',name:'Лист 1',kind:'С'}], cur:'s1', stamp:defStamp()});
+// Приведение загруженного проекта к безопасному виду: файл мог прийти от кого угодно (git, почта),
+// а id, вид листа и числа попадают в разметку без экранирования — поэтому всё проверяем здесь.
+const ID_RE=/^[\w-]{1,40}$/;
+const num=(v,d=0)=>{ const n=+v; return Number.isFinite(n)?n:d; };
+const str=v=>v===undefined||v===null?'':String(v);
 function migrate(d){
-  if(!d.stamp) d.stamp=defStamp(); if(!d.stamp.people) d.stamp.people={};
-  if(!Array.isArray(d.sheets)||!d.sheets.length) d.sheets=[{id:'s1',name:'Лист 1',kind:'С'}];
+  if(!d.stamp||typeof d.stamp!=='object') d.stamp=defStamp();
+  if(!d.stamp.people||typeof d.stamp.people!=='object') d.stamp.people={};
+  // листы: id только из букв/цифр, вид — из списка
+  const sid=new Set();
+  d.sheets=(Array.isArray(d.sheets)?d.sheets:[]).filter(s=>s&&ID_RE.test(s.id)&&!sid.has(s.id)&&sid.add(s.id));
+  d.sheets.forEach(s=>{ if(!KIND[s.kind]) s.kind='С'; s.name=str(s.name); if(s.code!==undefined) s.code=str(s.code); });
+  if(!d.sheets.length) d.sheets=[{id:'s1',name:'Лист 1',kind:'С'}];
   if(!d.sheets.some(s=>s.id===d.cur)) d.cur=d.sheets[0].id;
-  d.comps.forEach(c=>{ if(!c.sheet||!d.sheets.some(s=>s.id===c.sheet)) c.sheet=d.sheets[0].id; });
-  if(d.bom&&!d.bom.sheet) d.bom.sheet=d.sheets[0].id;
+  // элементы: известный тип, уникальный id, числа — числа, строки — строки
+  const cid=new Set();
+  d.comps=(Array.isArray(d.comps)?d.comps:[]).filter(c=>c&&T[c.type]&&ID_RE.test(c.id)&&!cid.has(c.id)&&cid.add(c.id));
+  d.comps.forEach(c=>{
+    if(!c.sheet||!d.sheets.some(s=>s.id===c.sheet)) c.sheet=d.sheets[0].id;
+    c.x=num(c.x); c.y=num(c.y); c.rot=[0,90,180,270].includes(num(c.rot))?num(c.rot):0;
+    ['ref','val','note','io','pos','lead'].forEach(k=>{ if(c[k]!==undefined) c[k]=str(c[k]); });
+    ['tx','ty'].forEach(k=>{ if(c[k]!==undefined) c[k]=num(c[k]); });
+  });
+  const byId=new Map(d.comps.map(c=>[c.id,c]));
+  // провода: оба конца существуют, на одном листе, вывод есть у элемента; иначе провод выбрасываем
+  const end=e=>Array.isArray(e)&&e.length===2&&byId.has(e[0])&&TP(byId.get(e[0])).pins.some(p=>p[0]===e[1]);
+  const wid=new Set(); let dropped=0;
+  d.wires=(Array.isArray(d.wires)?d.wires:[]).filter(w=>{
+    const ok=w&&end(w.a)&&end(w.b)&&byId.get(w.a[0]).sheet===byId.get(w.b[0]).sheet;
+    if(!ok) dropped++; return ok; });
+  d.wires.forEach(w=>{
+    if(!ID_RE.test(w.id)||wid.has(w.id)) w.id=''; else wid.add(w.id);
+    w.flip=!!w.flip;
+    if(w.pts!==undefined){ if(Array.isArray(w.pts)&&w.pts.every(p=>Array.isArray(p)&&p.length===2)) w.pts=w.pts.map(([x,y])=>[num(x),num(y)]); else delete w.pts; }
+  });
+  if(d.bom){ if(typeof d.bom!=='object') delete d.bom;
+    else { d.bom={show:!!d.bom.show, sheet:d.sheets.some(s=>s.id===d.bom.sheet)?d.bom.sheet:d.sheets[0].id, x:num(d.bom.x), y:num(d.bom.y)}; } }
+  if(d.route!=='simple') d.route='auto';
+  // счётчик id: не меньше самого большого номера среди существующих id — иначе новые элементы получат дубли
+  const maxN=Math.max(0,...[...d.sheets,...d.comps,...d.wires].map(o=>parseInt(String(o.id).replace(/^\D+/,''),10)||0));
+  d.n=Math.max(num(d.n,1),maxN+1);
+  d.wires.forEach(w=>{ if(!w.id) w.id='w'+(d.n++); });
+  if(dropped) setTimeout(()=>toast(`Выброшено битых проводов из файла: ${dropped}`),300);
   return d;
 }
 let S = blank();
@@ -1001,7 +1042,6 @@ function rotSel(){ if(!(sel&&sel.k==='c')) return; const c=comp(sel.id); if(c.ty
 function addWire(a,b){
   if(a===b) return;
   const A=a.split(':'), B=b.split(':');
-  if(A[0]===B[0] && T[comp(A[0]).type].pins.length<3 && false) return;
   if(pk(a)!==pk(b)){ const nm={'':'электрический вывод',h:'трубу с водой',n:'пневмолинию'}; toast(`Нельзя соединить ${nm[pk(a)]} и ${nm[pk(b)]}`); return; }
   if(S.wires.some(w=>(w.a.join(':')===a&&w.b.join(':')===b)||(w.a.join(':')===b&&w.b.join(':')===a))) return;
   push(); const w={id:'w'+(S.n++), a:A, b:B, flip:false}; S.wires.push(w); sel={k:'w',id:w.id}; save();
@@ -1233,7 +1273,7 @@ document.getElementById('io-copy').onclick=()=>{
 };
 document.getElementById('io-load').onclick=()=>{
   try{ const d=JSON.parse(ioT.value); if(!Array.isArray(d.comps)||!Array.isArray(d.wires)) throw 0;
-    d.comps.forEach(c=>{ if(!T[c.type]) throw 0; }); push(); S=migrate(d); S.n=S.n||999; sel=null; pending=null; render(); fit(); save(); msg('Загружено'); }
+    d.comps.forEach(c=>{ if(!T[c.type]) throw 0; }); push(); S=migrate(d); sel=null; pending=null; render(); fit(); save(); msg('Загружено'); }
   catch(e){ msg('Не похоже на JSON схемы: нужны поля comps и wires'); }
 };
 document.getElementById('io-new').onclick=()=>{ push(); S=blank(); sel=null; view='sheet'; fileName=''; fileHandle=null; render(); fit(); save(); msg('Пустой лист. Отменить можно через «Отменить»'); };
@@ -1507,7 +1547,7 @@ function loadProjectText(text, name){
   let d;
   try{ d=JSON.parse(text); if(!Array.isArray(d.comps)||!Array.isArray(d.wires)) throw 0; d.comps.forEach(c=>{ if(!T[c.type]) throw 0; }); }
   catch(e){ toast('Это не файл проекта Схемника: в нём нет схемы'); return false; }
-  push(); S=migrate(d); S.n=S.n||999; view='sheet'; sel=null; pending=null; stampOpen=false;
+  push(); S=migrate(d); view='sheet'; sel=null; pending=null; stampOpen=false;
   for(const k in vbs) delete vbs[k];
   fileName=name; dirty=false; render(); fit(); save();
   toast(`Открыт ${name}. Вернуть прежний проект — «Отменить»`); return true;
