@@ -97,6 +97,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-r
 .sym .thick{stroke-width:5}
 .comp.sel .sym{stroke:var(--accent)} .comp.sel .sym .fill{fill:var(--accent)}
 .comp .hit{fill:transparent;stroke:none;cursor:move}
+.comp .hit.fr{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke}
 .lbl{font-family:var(--mono);font-size:12px;fill:var(--ink);pointer-events:none}
 .lbl.v{fill:var(--muted);font-size:11px}
 .pinv{fill:var(--sheet);stroke:var(--pin);stroke-width:1.5;pointer-events:none}
@@ -273,6 +274,21 @@ const T = {
   // автоматический выключатель (ГОСТ 2.755 / IEC 60617: крестик на неподвижном контакте — функция автомата)
   QF:  {name:'Автомат', pre:'QF', val:'C10', pins:[['1',-40,0],['2',40,0]], box:[-40,-18,80,30], showPins:true,
         d:'<path d="M-40 0H-12M12 0H40M-12 0L14 -12M8 -4L16 4M8 4L16 -4"/>'},
+  // разъединитель с предохранителем, 1 полюс (IEC 60617): плавкая вставка на подвижном контакте, черта на неподвижном — функция разъединителя
+  QS:  {name:'Разъединитель с предохр.', dev:'Разъединитель с предохранителем', pre:'QS', val:'gG 6 А', pins:[['1',-40,0],['2',40,0]], box:[-40,-22,80,34], showPins:true,
+        d:'<path d="M-40 0H-12M12 0H40M-12 0L14 -12M12 -7V7"/><rect x="-8" y="-3.5" width="16" height="7" transform="translate(1 -6) rotate(-24.8)"/>'},
+  // клемма на принципиальной схеме: проходная, обе стороны — одна цепь (thru); подпись «XT1:3». Все клеммы с одним обозначением — один клеммник
+  XT:  {name:'Клемма', dev:'Клеммник', pre:'XT', val:'', k:'Э', pins:[['1',-20,0],['2',20,0]], box:[-20,-8,40,16], ly:-12, vb:22, noIo:true, prio:0,
+        thru:[['1','2']], pair:'XTM', short:'клемма',
+        d:'<path d="M-20 0H-5M5 0H20"/><circle cx="0" cy="0" r="5"/>'},
+  // клеммник на монтажной схеме: колонка клемм, у каждой вывод слева (a) и справа (b) — одна цепь
+  XTM: {name:'Клеммник', pre:'XT', val:'', k:'М', pins:[['1a',-40,0]], box:[-40,-34,80,68], noIo:true, prio:3, short:'клеммник',
+        d:'<rect x="-20" y="-30" width="40" height="60"/><path d="M-20 -10H20M-20 10H20M-40 -20H-20M-40 0H-20M-40 20H-20M20 -20H40M20 0H40M20 20H40"/>',
+        dyn:Object.assign(c=>xtmLayout(c),{key:c=>String(xtN(c))})},
+  // прямоугольник: рамка (шкаф, узел) или условное устройство с выводами слева/справа — для монтажной схемы; размер ручкой в углу
+  RECT:{name:'Прямоугольник', pre:'▭', val:'A1', k:'*', pins:[], box:[-40,-24,80,48], onlyVal:true, noIo:true,
+        d:'<rect x="-36" y="-20" width="72" height="40"/>',
+        dyn:Object.assign(c=>rectLayout(c),{key:c=>JSON.stringify([c.rw,c.rh,c.pl,c.pr,c.dash])})},
   // трансформатор (ГОСТ 2.723): первичная обмотка 1-2 слева, вторичная 3-4 справа
   TV:  {name:'Трансформатор', pre:'TV', val:'230/24 В', pins:[['1',-40,-20],['2',-40,20],['3',40,-20],['4',40,20]], box:[-40,-26,80,52], ly:-32, vb:40, showPins:true, tnk:0.8,
         d:'<circle cx="-9" cy="0" r="14"/><circle cx="9" cy="0" r="14"/><path d="M-40 -20H-9V-14M-40 20H-9V14M40 -20H9V-14M40 20H9V14"/>'},
@@ -394,6 +410,7 @@ const T = {
 
 // вид листа: Э — электрическая, Г — гидравлическая, С — совмещённая (всё, кроме раздельных представлений)
 ['R','C','VD','HL','HLL','M1','M3','QF','TV','G','BAR','BP','BFE','PLC','SM','EIN','EOUT','SBO','SBC','SA','GB','KNO','KNC','K','KM','KA','GND','VCC'].forEach(k=>T[k].k='Э');
+T.QS.k='Э'; ['EIN','EOUT','GND','VCC'].forEach(k=>T[k].m=true);   // m — можно и на монтажном листе
 Object.assign(T.BP,{pair:['BPH','BPP'], dev:'Датчик давления', short:'4…20 мА', prio:1});
 T.YVE.pair=['YVH','YVP'];
 // описание элемента для конкретного экземпляра: у контроллера выводы и размер зависят от числа входов/выходов
@@ -457,9 +474,52 @@ function contactPos(c){
   let n=0; for(const o of same){ do n++; while(taken.has(n)); if(o.id===c.id) return n; }
   return 1;
 }
-const pinLabel=(c,p)=>RC.has(c.type)?String(contactPos(c))+p.slice(-1):p;
+const pinLabel=(c,p)=>RC.has(c.type)?String(contactPos(c))+p.slice(-1):c.type==='XT'?xtNo(c):c.type==='XTM'?p.slice(0,-1):p;
 const repLabel=o=>RC.has(o.type)?`${T[o.type].short} ${pinLabel(o,T[o.type].pins[0][0])}-${pinLabel(o,T[o.type].pins[1][0])}`:(T[o.type].short||T[o.type].name);
-const kindAllows=(kind,type)=>{ const t=T[type]; if(t.k==='*') return true; return kind==='С' ? !t.split : t.k===kind; };
+const kindAllows=(kind,type)=>{ const t=T[type]; if(t.k==='*') return true; if(kind==='М') return t.k==='М'||!!t.m; return kind==='С' ? !t.split : t.k===kind; };
+// ——— клеммы ———
+// номер клеммы на принципиальной схеме (tn — любая строка: 1, 2, PE…)
+const xtNo=c=>String(c.tn||'?');
+// число клемм клеммника на монтажной: вручную (nt) или по наибольшему номеру клеммы с тем же обозначением на принципиальных листах
+function xtN(c){ const m=parseInt(c.nt,10); if(m>0) return Math.min(60,m);
+  const mx=Math.max(0,...S.comps.filter(o=>o.type==='XT'&&o.ref===c.ref).map(o=>parseInt(o.tn,10)||0));
+  return mx?Math.min(60,mx):6; }
+function xtmLayout(c){
+  const n=xtN(c), top=-Math.floor((n-1)/2)*G, y0=top-G/2, y1=top+(n-1)*G+G/2, pins=[], thru=[];
+  let d=`<rect x="-20" y="${y0}" width="40" height="${y1-y0}"/>`, sep='', lead='';
+  for(let i=0;i<n;i++){ const y=top+i*G, k=i+1; pins.push([k+'a',-40,y],[k+'b',40,y]); thru.push([k+'a',k+'b']);
+    if(i) sep+=`M-20 ${y-G/2}H20`; lead+=`M-40 ${y}H-20M20 ${y}H40`;
+    d+=`<text x="0" y="${y+3.5}" text-anchor="middle" class="fill" style="stroke:none;font:10px monospace">${k}</text>`; }
+  d+=`<path d="${sep}${lead}"/>`;
+  return {pins, thru, box:[-40,y0-2,80,y1-y0+4], ly:y0-8, vb:y1+16, d};
+}
+// сквозные соединения внутри элемента (клемма: вход и выход — одна цепь) — пары ключей «id:вывод»
+const thruKeys=cs=>cs.flatMap(c=>(TP(c).thru||[]).map(([a,b])=>[c.id+':'+a,c.id+':'+b]));
+// ——— прямоугольник: рамка или условное устройство ———
+const RECT_R=[20,1200];
+// список выводов из строки «A1, A2, 13»: имя попадает в разметку и в ключ провода, поэтому только буквы/цифры/+−./ и без повторов
+function pinList(v, taken){ const out=[];
+  String(v||'').split(/[,;\s]+/).forEach(x=>{ let nm=x.replace(/[^\wА-Яа-яЁё+\-−.\/]/g,'').slice(0,12); if(!nm||out.length>=40) return;
+    let k=nm, i=2; while(taken.has(k)) k=nm+'_'+(i++); taken.add(k); out.push(k); });
+  return out; }
+function rectLayout(c){
+  const taken=new Set(), L=pinList(c.pl,taken), R=pinList(c.pr,taken), n=Math.max(L.length,R.length);
+  const hw=clampG(c.rw,RECT_R,60), top=-Math.floor((Math.max(n,1)-1)/2)*G;
+  const hh=Math.max(clampG(c.rh,RECT_R,40), n?top+(n-1)*G+G:0), xo=hw+G;
+  const pins=[...L.map((p,i)=>[p,-xo,top+i*G]), ...R.map((p,i)=>[p,xo,top+i*G])];
+  const txt=(x,y,s,a)=>`<text x="${x}" y="${y+3.5}" text-anchor="${a}" class="fill" style="stroke:none;font:10px monospace">${esc(s)}</text>`;
+  let d=`<rect x="${-hw}" y="${-hh}" width="${2*hw}" height="${2*hh}"${c.dash?' stroke-dasharray="8 5"':''}/>`;
+  if(n) d+=`<path d="${L.map((_,i)=>`M${-xo} ${top+i*G}H${-hw}`).join('')}${R.map((_,i)=>`M${hw} ${top+i*G}H${xo}`).join('')}"/>`;
+  L.forEach((p,i)=>{ d+=txt(-hw+4,top+i*G,p,'start'); }); R.forEach((p,i)=>{ d+=txt(hw-4,top+i*G,p,'end'); });
+  const bx=n?xo:hw;
+  return {pins, d, box:[-bx,-hh,2*bx,2*hh], rsz:[hw,hh], frame:!n, hw, hh};
+}
+// рамка без выводов: провода идут сквозь неё, ловится только за контур и рисуется под остальными элементами
+const isFrame=c=>c.type==='RECT'&&!!TP(c).frame;
+const compsSVG=(cs,ex)=>[...cs.filter(isFrame),...cs.filter(c=>!isFrame(c))].map(c=>compSVG(c,ex)).join('');
+function dropDeadWires(){ const before=S.wires.length;
+  S.wires=S.wires.filter(w=>[w.a,w.b].every(([id,p])=>{ const o=comp(id); return !o||TP(o).pins.some(q=>q[0]===p); }));
+  return before-S.wires.length; }
 // сноска: строки текста над полкой, выноска от начала полки к точке (tx,ty); lead: dot | arrow | none
 function noteLayout(c){
   const lines=String(c.val||' ').split('\n'), lh=15, w=Math.max(40, Math.max(...lines.map(l=>l.length))*7.2+10), h=lines.length*lh;
@@ -471,7 +531,8 @@ function noteLayout(c){
     else d+=`<circle cx="${tx}" cy="${ty}" r="2.5" class="fill"/>`; }
   return {box:[0,-h-2,w,h+4], d, tip:lead==='none'?null:[tx,ty]};
 }
-const KIND={Э:'Э — электрическая', Г:'Г — гидравлическая', П:'П — пневматическая', С:'совмещённая'};
+const KIND={Э:'Э — электрическая', М:'М — монтажная (соединений)', Г:'Г — гидравлическая', П:'П — пневматическая', С:'совмещённая'};
+let S;
 const defStamp=()=>({code:'', title:'', org:'', litera:'', people:{}});
 const blank=()=>({comps:[], wires:[], n:1, sheets:[{id:'s1',name:'Лист 1',kind:'С'}], cur:'s1', stamp:defStamp()});
 // Приведение загруженного проекта к безопасному виду: файл мог прийти от кого угодно (git, почта),
@@ -494,16 +555,18 @@ function migrate(d){
   d.comps.forEach(c=>{
     if(!c.sheet||!d.sheets.some(s=>s.id===c.sheet)) c.sheet=d.sheets[0].id;
     c.x=num(c.x); c.y=num(c.y); c.rot=[0,90,180,270].includes(num(c.rot))?num(c.rot):0;
-    ['ref','val','note','io','pos','lead'].forEach(k=>{ if(c[k]!==undefined) c[k]=str(c[k]); });
-    ['tx','ty','pw','pp','ndi','ndq','nai','naq','nch','base'].forEach(k=>{ if(c[k]!==undefined) c[k]=num(c[k]); });
+    ['ref','val','note','io','pos','lead','tn','pl','pr'].forEach(k=>{ if(c[k]!==undefined) c[k]=str(c[k]); });
+    ['tx','ty','pw','pp','ndi','ndq','nai','naq','nch','base','nt','rw','rh'].forEach(k=>{ if(c[k]!==undefined) c[k]=num(c[k]); });
+    if(c.dash!==undefined) c.dash=!!c.dash;
   });
   const byId=new Map(d.comps.map(c=>[c.id,c]));
   // провода: оба конца существуют, на одном листе, вывод есть у элемента; иначе провод выбрасываем
   const end=e=>Array.isArray(e)&&e.length===2&&byId.has(e[0])&&TP(byId.get(e[0])).pins.some(p=>p[0]===e[1]);
   const wid=new Set(); let dropped=0;
-  d.wires=(Array.isArray(d.wires)?d.wires:[]).filter(w=>{
+  const keepS=S; S=d;   // число клемм клеммника считается по клеммам проекта — на время проверки это загружаемый проект
+  try{ d.wires=(Array.isArray(d.wires)?d.wires:[]).filter(w=>{
     const ok=w&&end(w.a)&&end(w.b)&&byId.get(w.a[0]).sheet===byId.get(w.b[0]).sheet;
-    if(!ok) dropped++; return ok; });
+    if(!ok) dropped++; return ok; }); } finally { S=keepS; }
   d.wires.forEach(w=>{
     if(!ID_RE.test(w.id)||wid.has(w.id)) w.id=''; else wid.add(w.id);
     w.flip=!!w.flip;
@@ -519,7 +582,7 @@ function migrate(d){
   if(dropped) setTimeout(()=>toast(`Выброшено битых проводов из файла: ${dropped}`),300);
   return d;
 }
-let S = blank();
+S = blank();
 const sheetOf = c => c.sheet || S.sheets[0].id;
 const curComps = () => S.comps.filter(c=>sheetOf(c)===S.cur);
 const curWires = () => { const ids=new Set(curComps().map(c=>c.id)); return S.wires.filter(w=>ids.has(w.a[0])); };
@@ -532,11 +595,12 @@ const isAutoIO=c=>!c.io&&!(c.type==='K'||c.type==='KM')&&AUTOIO.has(c.id);
 // Автоадрес: от каждого вывода контроллера идём по цепи (все листы, флажки линий с одинаковым именем — одна цепь,
 // сквозь барьер — с выхода 7/8 на вход 1/3) и отдаём адрес самому подходящему устройству в этой цепи.
 const IN_PRI=['BP','BFE','SPE','SP','SBO','SBC','SA','KNO','KNC','K'], OUT_PRI=['RDE','YVE','YV','HLL','HL','KA','KM'];
-const NOT_DEV=new Set(['PLC','SM','BAR','EIN','EOUT','GND','VCC','HIN','HOUT','PIN','POUT','NOTE']);
+const NOT_DEV=new Set(['PLC','SM','BAR','EIN','EOUT','GND','VCC','HIN','HOUT','PIN','POUT','NOTE','XT','XTM','RECT','QS','QF']);
 function autoIO(){
   const plcs=S.comps.filter(c=>IOMOD.has(c.type)); if(!plcs.length) return new Map();
   const par={}, f=k=>{ if(par[k]===undefined) par[k]=k; return par[k]===k?k:(par[k]=f(par[k])); }, uni=(a,b)=>{ par[f(a)]=f(b); };
   S.wires.forEach(w=>uni(w.a.join(':'),w.b.join(':')));
+  thruKeys(S.comps).forEach(([a,b])=>uni(a,b));   // сквозь клеммы
   const byName={};
   S.comps.forEach(c=>{ if(EFLAG.has(c.type)&&c.val){ const k=c.id+':'+TP(c).pins[0][0]; f(k); if(byName[c.val]) uni(k,byName[c.val]); else byName[c.val]=k; } });
   const groups={}; Object.keys(par).forEach(k=>{ (groups[f(k)] ||= []).push(k); });
@@ -589,12 +653,14 @@ function wirePts(w){
 function netRoots(){
   const par={}; const f=k=>{ if(par[k]===undefined) par[k]=k; return par[k]===k?k:(par[k]=f(par[k])); };
   curWires().forEach(w=>{ par[f(w.a.join(':'))]=f(w.b.join(':')); });
+  const wired=new Set(Object.keys(par));
+  thruKeys(curComps()).forEach(([a,b])=>{ if(wired.has(a)&&wired.has(b)) par[f(a)]=f(b); });
   return f;
 }
 function routeAll(){
   const R=new Map(), WS=curWires(), CS=curComps(); if(!WS.length) return R;
   let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; const rects=[];
-  CS.forEach(c=>{ const [bx,by,bw,bh]=TP(c).box;
+  CS.forEach(c=>{ if(isFrame(c)) return; const [bx,by,bw,bh]=TP(c).box;
     const p1=rp(bx,by,c.rot), p2=rp(bx+bw,by+bh,c.rot);
     const r=[c.x+Math.min(p1[0],p2[0])-10, c.y+Math.min(p1[1],p2[1])-10, c.x+Math.max(p1[0],p2[0])+10, c.y+Math.max(p1[1],p2[1])+10];
     rects.push(r); x0=Math.min(x0,r[0]); y0=Math.min(y0,r[1]); x1=Math.max(x1,r[2]); y1=Math.max(y1,r[3]); });
@@ -710,10 +776,11 @@ function compSVG(c, forExport){
   const conn = new Set(); S.wires.forEach(w=>{conn.add(w.a.join(':'));conn.add(w.b.join(':'));});
   let lbl='';
   const vert = c.rot%180!==0;
-  const lines = t.noLabel?[]: t.onlyVal?[[c.val,'']]:[[c.ref,''],[c.val,'v']];
+  const lines = t.noLabel?[]: t.onlyVal?[[c.val,'']]: c.type==='XT'?[[c.ref+':'+xtNo(c),'']]:[[c.ref,''],[c.val,'v']];
   lines.forEach(([txt,cls],i)=>{ if(!txt) return;
     let x,y,anc;
     if(c.type==='VCC'){ [x,y]=vert?[-18,4]:[0,-12]; anc=vert?'end':'middle'; }
+    else if(c.type==='RECT'){ const r=compRect(c); x=r[0]-c.x; y=r[1]-c.y-6; anc='start'; cls+=' nm'; }
     else if(t.lv){ [x,y,anc]=vert?[-18,4,'end']:t.lv; cls+=' nm'; }
     else if(vert){ x=-18; y=-4+i*15; anc='end'; }
     else if(i===0&&t.lx!==undefined){ x=t.lx; y=t.ly; anc='start'; }
@@ -725,8 +792,8 @@ function compSVG(c, forExport){
   if(!BOM_SKIP.has(c.type)){
     const items=[];
     if((c.io||isAutoIO(c))&&ioAddr(c)) items.push(['%'+ioAddr(c), null]);
-    if(c.ref) S.comps.forEach(o=>{ if(o.id!==c.id&&o.ref===c.ref&&!BOM_SKIP.has(o.type)&&!(CT.has(c.type)&&CT.has(o.type)))   // у контакта — ссылка на катушку, не на соседние контакты
-      items.push([repLabel(o)+' → л.'+sheetNo(sheetOf(o)), o.id]); });
+    if(c.ref) S.comps.forEach(o=>{ if(o.id!==c.id&&o.ref===c.ref&&!BOM_SKIP.has(o.type)&&!(CT.has(c.type)&&CT.has(o.type))&&!(c.type==='XT'&&o.type==='XT')){   // у контакта — ссылка на катушку, не на соседние контакты; у клеммы — на клеммник
+      const txt=repLabel(o)+' → л.'+sheetNo(sheetOf(o)); if(!items.some(it=>it[0]===txt)) items.push([txt, o.id]); } });
     items.slice(0,4).forEach(([txt,oid],k)=>{
       const side=t.lx!==undefined;
       const [x,y,anc] = vert ? [-18, 26+k*12, 'end']
@@ -757,7 +824,7 @@ function compSVG(c, forExport){
     pins+=`<circle class="pinv ${pc}" cx="${x}" cy="${y}" r="3.5"/><circle class="pinhit" data-pin="${key}" cx="${x}" cy="${y}" r="10"/>`;
   });
   const [bx,by,bw,bh]=t.box;
-  return `<g class="comp ${s?'sel':''}" data-comp="${c.id}" transform="translate(${c.x} ${c.y})"><g transform="rotate(${c.rot})">${forExport?'':`<rect class="hit" x="${bx}" y="${by}" width="${bw}" height="${bh}"/>`}<g class="sym">${t.d}</g></g>${lbl}${pins}</g>`;
+  return `<g class="comp ${s?'sel':''}" data-comp="${c.id}" transform="translate(${c.x} ${c.y})"><g transform="rotate(${c.rot})">${forExport?'':`<rect class="hit${t.frame?' fr':''}" x="${bx}" y="${by}" width="${bw}" height="${bh}"/>`}<g class="sym">${t.d}</g></g>${lbl}${pins}</g>`;
 }
 function wireSVG(w, forExport){
   const pts=wirePts(w).map(p=>p.join(',')).join(' ');
@@ -766,7 +833,7 @@ function wireSVG(w, forExport){
 }
 // ручки сегментов у выбранного провода: тянуть поперёк сегмента
 // ——— перечень элементов (ГОСТ 2.701): одинаковые элементы с подряд идущими номерами сводятся в одну строку
-const BOM_SKIP=new Set(['GND','VCC','HIN','HOUT','EIN','EOUT','PIN','POUT','NOTE']);
+const BOM_SKIP=new Set(['GND','VCC','HIN','HOUT','EIN','EOUT','PIN','POUT','NOTE','RECT']);
 const EFLAG=new Set(['EIN','EOUT']);
 const COLS=[[90,'Поз. обозн.'],[270,'Наименование'],[44,'Кол.'],[130,'Примечание']];
 const BW=COLS.reduce((s,c)=>s+c[0],0), BT=26, BH=24, BR=20;
@@ -858,7 +925,7 @@ function render(){
   rb.textContent = S.route==='simple' ? '⌐ Провода: уголком' : '⌁ Провода: трассировка';
   rb.setAttribute('aria-pressed', S.route==='simple'?'false':'true');
   gw.innerHTML = curWires().map(w=>wireSVG(w)).join('') + dotsSVG();
-  gc.innerHTML = curComps().map(c=>compSVG(c)).join('');
+  gc.innerHTML = compsSVG(curComps());
   document.getElementById('gh').innerHTML = handlesSVG();
   document.getElementById('gb').innerHTML = bomSVG();
   document.getElementById('b-bom').setAttribute('aria-pressed', String(!!(S.bom&&S.bom.show&&S.bom.sheet===S.cur)));
@@ -887,13 +954,16 @@ function renderProps(){
   if(sel&&sel.k==='c'){ const c=comp(sel.id), t=TP(c);
     el.innerHTML=`<h2>${t.name}</h2>
       <div class="field"><label for="f-ref">Обозн.</label><input id="f-ref" value="${esc(c.ref)}"></div>
-      <div class="field"><label for="f-val">${c.type==='K'||c.type==='KM'?'Адрес PLC':c.type==='SP'?'Уставка':c.type==='FW'?'Тонкость':c.type==='BV'?'Ду':c.type==='HIN'||c.type==='HOUT'?'Среда':EFLAG.has(c.type)?'Цепь':c.type==='NOTE'?'Текст':'Номинал'}</label>${c.type==='NOTE'?`<textarea id="f-val" rows="3" style="width:100%;box-sizing:border-box;resize:vertical">${esc(c.val)}</textarea>`:`<input id="f-val" value="${esc(c.val)}"${EFLAG.has(c.type)?' list="netnames" placeholder="L1, N, PE, +24 В"':''}>`}</div>
+      <div class="field"><label for="f-val">${c.type==='K'||c.type==='KM'?'Адрес PLC':c.type==='SP'?'Уставка':c.type==='FW'?'Тонкость':c.type==='BV'?'Ду':c.type==='HIN'||c.type==='HOUT'?'Среда':EFLAG.has(c.type)?'Цепь':c.type==='NOTE'?'Текст':c.type==='RECT'?'Подпись':c.type==='XT'||c.type==='XTM'?'Тип клемм':'Номинал'}</label>${c.type==='NOTE'?`<textarea id="f-val" rows="3" style="width:100%;box-sizing:border-box;resize:vertical">${esc(c.val)}</textarea>`:`<input id="f-val" value="${esc(c.val)}"${EFLAG.has(c.type)?' list="netnames" placeholder="L1, N, PE, +24 В"':''}>`}</div>
       ${c.type==='NOTE'?`<div class="field"><label for="f-lead">Выноска</label><select id="f-lead">${[['dot','с точкой'],['arrow','со стрелкой'],['none','без выноски']].map(([v,l])=>`<option value="${v}"${(c.lead||'dot')===v?' selected':''}>${l}</option>`).join('')}</select></div><p class="muted" style="margin-bottom:6px">Тяни кружок на конце выноски, чтобы указать нужное место. Новая строка — Enter.</p>`:''}
       ${EFLAG.has(c.type)?`<datalist id="netnames">${[...new Set(['L1','L2','L3','N','PE','+24 В','0 В',...S.comps.filter(o=>EFLAG.has(o.type)||o.type==='VCC').map(o=>o.val).filter(Boolean)])].map(v=>`<option value="${esc(v)}">`).join('')}</datalist><p class="muted" style="margin-bottom:6px">Флажки с одинаковым именем — одна цепь, даже на разных листах.</p>`:''}
       ${BOM_SKIP.has(c.type)?'':`<div class="field"><label for="f-note">Примечание</label><input id="f-note" value="${esc(c.note||'')}" placeholder="в перечень"></div>`}
+      ${c.type==='XT'?`<div class="field"><label for="f-tn">№ клеммы</label><input id="f-tn" value="${esc(c.tn||'')}" placeholder="1, 2, PE"></div><p class="muted" style="margin-bottom:6px">Клеммы с одним обозначением (${esc(c.ref)}) — один клеммник. Обе стороны клеммы — одна цепь.</p>`:''}
+      ${c.type==='XTM'?`<div class="field"><label for="f-nt">Клемм</label><input id="f-nt" type="number" min="1" max="60" value="${parseInt(c.nt,10)>0?xtN(c):''}" placeholder="авто: ${xtN({ref:c.ref})}"></div><p class="muted" style="margin-bottom:6px">Пусто — по наибольшему номеру клеммы ${esc(c.ref)} на принципиальной схеме. Левый и правый вывод клеммы — одна цепь.</p>`:''}
+      ${c.type==='RECT'?`<div class="field"><label for="f-pl">Выводы слева</label><input id="f-pl" value="${esc(c.pl||'')}" placeholder="A1, 13, 23"></div><div class="field"><label for="f-pr">Выводы справа</label><input id="f-pr" value="${esc(c.pr||'')}" placeholder="A2, 14, 24"></div><div class="field"><label for="f-dash">Линия</label><select id="f-dash"><option value="">сплошная</option><option value="1"${c.dash?' selected':''}>пунктир</option></select></div><p class="muted" style="margin-bottom:6px">Без выводов — рамка (шкаф, узел): провода идут сквозь неё, выделяется за контур. С выводами — условное устройство для монтажной схемы. Размер — квадратик в углу. Сейчас ${2*t.hw}×${2*t.hh}.</p>`:''}
       ${c.type==='PLC'?[['ndi','Входы DI'],['ndq','Выходы DQ'],['nai','Входы AI'],['naq','Выходы AQ']].map(([k,l])=>`<div class="field"><label for="f-${k}">${l}</label><input id="f-${k}" type="number" min="0" max="32" value="${plcN(c,k)}"></div>`).join('')+'<p class="muted" style="margin-bottom:6px">Адреса как у S7-1200: I0.0…, Q0.0…, аналоговые IW64… и QW64….</p>':''}
       ${c.type==='SM'?`<div class="field"><label for="f-nch">Каналов</label><input id="f-nch" type="number" min="1" max="8" value="${smCh(c)}"></div><div class="field"><label for="f-base">Адрес IW</label><input id="f-base" type="number" min="0" max="1022" step="2" value="${smBase(c)}"></div><p class="muted" style="margin-bottom:6px">Каналы IW${smBase(c)}…IW${smBase(c)+2*(smCh(c)-1)}. Начальный адрес — как в конфигурации TIA: слот 2 — 96, слот 3 — 112, слот 4 — 128. Датчик ищется по выводу «+» канала.</p>`:''}
-      ${t.rsz?`<p class="muted" style="margin-bottom:6px">Размер: тяни квадратик в углу корпуса — вбок ширина, вниз шаг выводов. Сейчас ${2*clampG(c.pw,PLC_W,60)}×шаг ${clampG(c.pp,PLC_P,G)}.</p>`
+      ${t.rsz&&c.type!=='RECT'?`<p class="muted" style="margin-bottom:6px">Размер: тяни квадратик в углу корпуса — вбок ширина, вниз шаг выводов. Сейчас ${2*clampG(c.pw,PLC_W,60)}×шаг ${clampG(c.pp,PLC_P,G)}.</p>`
         +((c.pw!==undefined||c.pp!==undefined)?'<div class="row" style="margin-bottom:6px"><button id="b-plcrst">↺ Размер по умолчанию</button></div>':''):''}
       ${!BOM_SKIP.has(c.type)&&t.k!=='Г'&&c.type!=='K'&&c.type!=='KM'&&!t.noIo?`<div class="field"><label for="f-io">Адрес PLC</label><input id="f-io" value="${esc(c.io||'')}" placeholder="${AUTOIO.has(c.id)?'авто: '+AUTOIO.get(c.id):'I0.1 / Q0.0'}" title="Пусто — адрес берётся по подключению к контроллеру"></div>`:''}
       ${RC.has(c.type)?`<div class="field"><label for="f-pos">№ контакта</label><input id="f-pos" value="${esc(c.pos||'')}" placeholder="авто: ${contactPos(c)}" inputmode="numeric"></div>`:''}
@@ -905,8 +975,14 @@ function renderProps(){
       i.addEventListener('input',()=>{ c[key]=i.value;
         if(key==='ref'||key==='note') linked.forEach(o=>{o[key]=i.value;});
         if(key==='val') linked.forEach(o=>{ if(!CT.has(o.type)&&!CT.has(c.type)&&(pairsOf(c.type).includes(o.type)||o.type===c.type)) o.val=i.value; });
-        gc.innerHTML=curComps().map(x=>compSVG(x)).join(''); document.getElementById('gb').innerHTML=bomSVG(); renderNets(); renderIO(); save();});};
-    f('f-ref','ref'); f('f-val','val'); f('f-note','note'); f('f-io','io'); f('f-pos','pos');
+        gc.innerHTML=compsSVG(curComps()); document.getElementById('gb').innerHTML=bomSVG(); renderNets(); renderIO(); save();});};
+    f('f-ref','ref'); f('f-val','val'); f('f-note','note'); f('f-io','io'); f('f-pos','pos'); f('f-tn','tn');
+    // клеммник: число клемм; прямоугольник: выводы и линия — провода к исчезнувшим выводам убираем
+    const gone=()=>{ const k=dropDeadWires(); render(); save(); if(k) toast(`Убрано проводов к исчезнувшим выводам: ${k}. Вернуть — «Отменить»`); };
+    const fnt=document.getElementById('f-nt'); if(fnt) fnt.addEventListener('change',()=>{ push(); const v=parseInt(fnt.value,10); if(v>0) c.nt=Math.min(60,v); else delete c.nt; gone(); });
+    ['pl','pr'].forEach(k=>{ const i=document.getElementById('f-'+k); if(i) i.addEventListener('change',()=>{ push(); c[k]=i.value; gone(); }); });
+    const fd=document.getElementById('f-dash'); if(fd) fd.onchange=()=>{ push(); c.dash=!!fd.value; render(); save(); };
+    if(c.type==='XT'||c.type==='XTM'){ const fr=document.getElementById('f-ref'); if(fr) fr.addEventListener('change',()=>{ dropDeadWires(); render(); save(); }); }
     const fl=document.getElementById('f-lead'); if(fl) fl.onchange=()=>{ push(); c.lead=fl.value; render(); save(); };
     // число каналов контроллера: провода к исчезнувшим выводам убираем
     ['ndi','ndq','nai','naq'].forEach(k=>{ const i=document.getElementById('f-'+k); if(!i) return;
@@ -924,7 +1000,7 @@ function renderProps(){
     const pr=document.getElementById('b-plcrst'); if(pr) pr.onclick=()=>{ push(); delete c.pw; delete c.pp; render(); save(); };
     el.querySelectorAll('[data-rep]').forEach(b=>{ b.onclick=()=>addRep(c,b.dataset.rep); });
   } else if(sel&&sel.k==='w'){ const w=S.wires.find(x=>x.id===sel.id);
-    const n=e=>comp(e[0]).ref+'.'+pinLabel(comp(e[0]),e[1]);
+    const n=e=>(comp(e[0]).ref||comp(e[0]).val)+'.'+pinLabel(comp(e[0]),e[1]);
     el.innerHTML=`<h2>${({h:'Труба',n:'Пневмолиния'})[pk(w.a.join(':'))]||'Провод'}</h2><p class="muted" style="font-family:var(--mono)">${esc(n(w.a))} → ${esc(n(w.b))}</p>${w.pts
       ? `<p class="muted" style="margin-top:6px"><b style="color:var(--accent)">Закреплён вручную</b> · ${wirePts(w).length-2} изл. Трассировщик его не трогает, другие провода обходят.</p><div class="row" style="margin-top:8px"><button id="b-unpin">⌁ Вернуть автотрассировку</button></div>`
       : S.route==='simple'
@@ -938,7 +1014,7 @@ function renderProps(){
     el.innerHTML=`<h2>Лист ${sheetNo(s.id)} из ${S.sheets.length}</h2>
       <div class="field"><label for="f-sname">Название</label><input id="f-sname" value="${esc(s.name)}"></div>
       <div class="field"><label for="f-skind">Вид</label><select id="f-skind">${Object.entries(KIND).map(([k,v])=>`<option value="${k}"${k===s.kind?' selected':''}>${v}</option>`).join('')}</select></div>
-      <div class="field"><label for="f-scode">Код в штампе</label><input id="f-scode" value="${esc(s.code||'')}" placeholder="${esc(s.kind==='С'?'нет':s.kind+'3')}"></div>
+      <div class="field"><label for="f-scode">Код в штампе</label><input id="f-scode" value="${esc(s.code||'')}" placeholder="${esc(defCode(s)||'нет')}"></div>
       <p class="muted" style="margin-bottom:6px">В штампе: ${esc(designation(s)||'—')}</p>
       <div class="row"><button id="b-sleft"${sheetNo(s.id)===1?' disabled':''} title="Сдвинуть лист раньше">◀ Влево</button><button id="b-sright"${sheetNo(s.id)===S.sheets.length?' disabled':''} title="Сдвинуть лист дальше">Вправо ▶</button><button id="b-sdel"${S.sheets.length<2?' disabled':''}>✕ Удалить лист</button></div>
       <p class="muted" style="margin-top:4px">Порядок листов можно менять и перетаскиванием вкладок.</p>
@@ -1042,6 +1118,7 @@ function previewStamp(){
 function nets(){
   const par={}; const f=k=>{ if(par[k]===undefined) par[k]=k; return par[k]===k?k:(par[k]=f(par[k])); };
   curWires().forEach(w=>{ par[f(w.a.join(':'))]=f(w.b.join(':')); });
+  { const wired=new Set(Object.keys(par)); thruKeys(curComps()).forEach(([a,b])=>{ if(wired.has(a)||wired.has(b)) par[f(a)]=f(b); }); }
   const groups={}; Object.keys(par).forEach(k=>{(groups[f(k)] ||= []).push(k);});
   let i=1, j=1;
   return Object.values(groups).map(m=>{
@@ -1051,7 +1128,7 @@ function nets(){
     const src=cs.find(([c])=>c.type==='HIN'), fl=cs.find(([c])=>EFLAG.has(c.type)&&c.val);
     const pa=cs.find(([c])=>c.type==='PIN');
     const name = h==='n'?(pa?(pa[0].val||pa[0].ref):'P'+(j++)): h?(src?(src[0].val||src[0].ref):'L'+(j++)): fl?fl[0].val: g?'GND': v?(v[0].val||v[0].ref): 'N'+(i++);
-    const members = cs.filter(([c])=>c.type!=='GND'&&c.type!=='VCC'&&!EFLAG.has(c.type)).map(([c,p])=>c.ref+'.'+pinLabel(c,p)).sort();
+    const mem0 = cs.filter(([c])=>c.type!=='GND'&&c.type!=='VCC'&&!EFLAG.has(c.type)).map(([c,p])=>(c.ref||c.val)+(c.type==='XT'||c.type==='XTM'?':':'.')+pinLabel(c,p)); const members=[...new Set(mem0)].sort();
     return {name, members, h};
   }).sort((a,b)=>a.name.localeCompare(b.name,'ru',{numeric:true}));
 }
@@ -1071,6 +1148,10 @@ function addComp(type){
   let x=snap(vb.x+vb.w/2), y=snap(vb.y+vb.h/2);
   const here=curComps(); while(here.some(c=>c.x===x&&c.y===y)){ x+=G*2; y+=G*2; }
   const c={id:'c'+(S.n++), type, sheet:S.cur, x, y, rot:0, ref:t.pre+(Math.max(0,...nums)+1), val:t.val};
+  if(type==='RECT') c.ref='';
+  if(type==='XT'){ // новая клемма продолжает последний клеммник: то же обозначение, следующий номер
+    const last=[...S.comps].reverse().find(o=>o.type==='XT'); c.ref=last?last.ref:'XT1'; if(last) c.val=last.val;
+    c.tn=String(Math.max(0,...S.comps.filter(o=>o.type==='XT'&&o.ref===c.ref).map(o=>parseInt(o.tn,10)||0))+1); }
   S.comps.push(c); sel={k:'c',id:c.id}; render(); save();
 }
 function delSel(){
@@ -1098,7 +1179,7 @@ function fit(){
   const CS=curComps();
   if(!CS.length&&!bomGeom()){ vb={x:-200,y:-150,w:600,h:400}; applyVB(); return; }
   let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
-  CS.forEach(c=>{x0=Math.min(x0,c.x-60);y0=Math.min(y0,c.y-60);x1=Math.max(x1,c.x+60);y1=Math.max(y1,c.y+60);});
+  CS.forEach(c=>{ const r=compRect(c); x0=Math.min(x0,c.x-60,r[0]-30);y0=Math.min(y0,c.y-60,r[1]-40);x1=Math.max(x1,c.x+60,r[2]+30);y1=Math.max(y1,c.y+60,r[3]+40);});
   curWires().forEach(w=>wirePts(w).forEach(([px,py])=>{x0=Math.min(x0,px-30);y0=Math.min(y0,py-30);x1=Math.max(x1,px+30);y1=Math.max(y1,py+30);}));
   const bg=bomGeom(); if(bg){ x0=Math.min(x0,bg.x-20); y0=Math.min(y0,bg.y-20); x1=Math.max(x1,bg.x+bg.w+20); y1=Math.max(y1,bg.y+bg.h+20); }
   const cw=svg.clientWidth||1, ch=svg.clientHeight||1, w=x1-x0, h=y1-y0;
@@ -1161,10 +1242,12 @@ svg.addEventListener('pointermove',e=>{
     const cross=x<drag.x0, r=[Math.min(x,drag.x0),Math.min(y,drag.y0),Math.max(x,drag.x0),Math.max(y,drag.y0)];
     go.innerHTML=`<rect class="marq${cross?' cross':''}" x="${r[0]}" y="${r[1]}" width="${r[2]-r[0]}" height="${r[3]-r[1]}"/>`;
     const hit=boxHits(r,cross); setSel(drag.add?[...new Set([...drag.base,...hit])]:hit);
-    gc.innerHTML=curComps().map(c=>compSVG(c)).join(''); return; }
+    gc.innerHTML=compsSVG(curComps()); return; }
   if(drag.t==='tip'){ const c=drag.c, nx=Math.round((x-c.x)/10)*10, ny=Math.round((y-c.y)/10)*10;
     if(nx!==+c.tx||ny!==+c.ty){ if(!drag.pushed){ push(); drag.pushed=true; } c.tx=nx; c.ty=ny; render(); } return; }
   if(drag.t==='rsz'){ const c=drag.c, t=TP(c), [lx,ly]=rp(x-c.x, y-c.y, (360-c.rot)%360);   // в координаты корпуса без поворота
+    if(c.type==='RECT'){ const rw=clampG(Math.abs(lx),RECT_R,60), rh=clampG(Math.abs(ly),RECT_R,40);
+      if(rw!==clampG(c.rw,RECT_R,60)||rh!==clampG(c.rh,RECT_R,40)){ if(!drag.pushed){ push(); drag.pushed=true; } c.rw=rw; c.rh=rh; render(); } return; }
     const pw=clampG(Math.abs(lx),PLC_W,60), pp=t.rk>0?clampG((ly-G)/t.rk,PLC_P,G):clampG(c.pp,PLC_P,G);
     if(pw!==clampG(c.pw,PLC_W,60)||pp!==clampG(c.pp,PLC_P,G)){ if(!drag.pushed){ push(); drag.pushed=true; }
       c.pw=pw; c.pp=pp; render(); } return; }
@@ -1243,11 +1326,12 @@ document.addEventListener('keydown',e=>{
 // ——— палитра: элементы спрятаны в меню по группам + поиск ———
 const pal=document.getElementById('pal');
 const GROUPS=[
-  ['Питание',      ['VCC','GND','G','TV','QF','GB','EIN','EOUT']],
+  ['Питание',      ['VCC','GND','G','TV','QF','QS','GB','EIN','EOUT']],
   ['Коммутация',   ['SA','SBO','SBC','KNO','KNC','K']],
   ['Реле и нагрузки',['KA','KM','YVE','RDE','HLL','HL','M1','M3']],
   ['Датчики',      ['BP','BFE','SPE','SP']],
   ['Автоматика',   ['PLC','SM','BAR']],
+  ['Клеммы и монтаж',['XT','XTM','RECT']],
   ['Пассивные',    ['R','C','VD']],
   ['Гидравлика',   ['HIN','HOUT','BV','FW','YVH','SPH','BPH','YV']],
   ['Пневматика',   ['PIN','POUT','VP','KR','RD','YVP','BPP','BFP']],
@@ -1293,13 +1377,13 @@ const io=document.getElementById('io'), ioT=document.getElementById('io-text'), 
 const msg=t=>{ioM.textContent=t;};
 function exportSVG(){
   let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; const CS=curComps();
-  CS.forEach(c=>{x0=Math.min(x0,c.x-60);y0=Math.min(y0,c.y-50);x1=Math.max(x1,c.x+60);y1=Math.max(y1,c.y+70);});
+  CS.forEach(c=>{ const r=compRect(c); x0=Math.min(x0,c.x-60,r[0]-20);y0=Math.min(y0,c.y-50,r[1]-30);x1=Math.max(x1,c.x+60,r[2]+20);y1=Math.max(y1,c.y+70,r[3]+40);});
   // провода тоже: трассировщик может увести линию за крайние элементы
   curWires().forEach(w=>wirePts(w).forEach(([px,py])=>{x0=Math.min(x0,px-20);y0=Math.min(y0,py-20);x1=Math.max(x1,px+20);y1=Math.max(y1,py+20);}));
   if(!CS.length){x0=y0=0;x1=y1=100;}
   const bg=bomGeom(); if(bg){ x0=Math.min(x0,bg.x-20); y0=Math.min(y0,bg.y-20); x1=Math.max(x1,bg.x+bg.w+20); y1=Math.max(y1,bg.y+bg.h+20); }
   const keep=sel; sel=null;
-  const body=curWires().map(w=>wireSVG(w,true)).join('')+dotsSVG()+bomSVG()+CS.map(c=>compSVG(c,true)).join('');
+  const body=curWires().map(w=>wireSVG(w,true)).join('')+dotsSVG()+bomSVG()+compsSVG(CS,true);
   sel=keep;
   return `<svg xmlns="${NS}" viewBox="${x0} ${y0} ${x1-x0} ${y1-y0}" width="${x1-x0}" height="${y1-y0}">
 <style>.sym{fill:none;stroke:#000;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.sym .fill,.dot{fill:#000}.sym .thick{stroke-width:5}.w{fill:none;stroke:#000;stroke-width:2}.lbl{font:12px monospace;fill:#000}.lbl.v{fill:#444;font-size:11px}.sym .pp,.pipe .w{stroke:#1f5fa8;stroke-width:4}.dot.pipe{fill:#1f5fa8}.sym .pf{fill:#1f5fa8;stroke:#1f5fa8}.bomg .bg{fill:#fff}.bt{fill:none;stroke:#000;stroke-width:1}.bt.o{stroke-width:2}.lbl.bth{font-size:11px;font-weight:bold}.lbl.xr{font-size:10px;fill:#1f5fa8}.lbl.tn{font-size:9px;fill:#555}.lbl.nm{font-weight:bold}.sym .pa,.air .w{stroke:#1a7a57;stroke-width:3}.dot.air{fill:#1a7a57}.sym .paf{fill:#1a7a57;stroke:#1a7a57}.sym .paw{fill:#fff;stroke:#1a7a57;stroke-width:2}</style>
@@ -1376,8 +1460,9 @@ async function rasterize(scale){
 const jpegURL=cv=>{ const u=cv.toDataURL('image/jpeg',0.9); if(u.length<100) throw new Error('браузер не смог сохранить лист в картинку'); return u; };
 // ——— основная надпись (штамп) по ГОСТ 2.104: форма 1 — 185×55 на первом листе, форма 2а — 185×15 на последующих ———
 const ROLES=[['dev','Разраб.'],['chk','Пров.'],['tk','Т.контр.'],['nk','Н.контр.'],['app','Утв.']];
-const DOCNAME={Э:'Схема электрическая принципиальная', Г:'Схема гидравлическая принципиальная', П:'Схема пневматическая принципиальная', С:'Схема принципиальная'};
-const sheetCode = s => (s.code&&s.code.trim()) || (s.kind==='С' ? '' : s.kind+'3');
+const DOCNAME={М:'Схема электрическая соединений', Э:'Схема электрическая принципиальная', Г:'Схема гидравлическая принципиальная', П:'Схема пневматическая принципиальная', С:'Схема принципиальная'};
+const defCode = s => s.kind==='С' ? '' : s.kind==='М' ? 'Э4' : s.kind+'3';
+const sheetCode = s => (s.code&&s.code.trim()) || defCode(s);
 const designation = s => [S.stamp.code, sheetCode(s)].filter(Boolean).join(' ');
 const docName = s => DOCNAME[s.kind]||DOCNAME.С;
 function stampSVG(sh, n, m, form, k){
