@@ -494,6 +494,7 @@ function xtmLayout(c){
   return {pins, thru, box:[-40,y0-2,80,y1-y0+4], ly:y0-8, vb:y1+16, d};
 }
 // сквозные соединения внутри элемента (клемма: вход и выход — одна цепь) — пары ключей «id:вывод»
+const XTS=new Set(['XT','XTM']);   // клеммы: одно обозначение на весь клеммник, поэтому правка обозначения — только у этого элемента
 const thruKeys=cs=>cs.flatMap(c=>(TP(c).thru||[]).map(([a,b])=>[c.id+':'+a,c.id+':'+b]));
 // ——— прямоугольник: рамка или условное устройство ———
 const RECT_R=[20,1200];
@@ -971,7 +972,7 @@ function renderProps(){
       ${repHTML(c)}`;
     // правка обозначения/примечания переносится на все представления устройства; номинал — на парное (клапан ↔ катушка)
     const f=(id,key)=>{const i=document.getElementById(id); if(!i) return; let linked=[];
-      i.addEventListener('focus',()=>{ push(); linked=c.ref?S.comps.filter(o=>o.id!==c.id&&o.ref===c.ref&&!BOM_SKIP.has(o.type)):[]; },{once:true});
+      i.addEventListener('focus',()=>{ push(); linked=c.ref&&!XTS.has(c.type)?S.comps.filter(o=>o.id!==c.id&&o.ref===c.ref&&!BOM_SKIP.has(o.type)):[]; },{once:true});
       i.addEventListener('input',()=>{ c[key]=i.value;
         if(key==='ref'||key==='note') linked.forEach(o=>{o[key]=i.value;});
         if(key==='val') linked.forEach(o=>{ if(!CT.has(o.type)&&!CT.has(c.type)&&(pairsOf(c.type).includes(o.type)||o.type===c.type)) o.val=i.value; });
@@ -982,7 +983,11 @@ function renderProps(){
     const fnt=document.getElementById('f-nt'); if(fnt) fnt.addEventListener('change',()=>{ push(); const v=parseInt(fnt.value,10); if(v>0) c.nt=Math.min(60,v); else delete c.nt; gone(); });
     ['pl','pr'].forEach(k=>{ const i=document.getElementById('f-'+k); if(i) i.addEventListener('change',()=>{ push(); c[k]=i.value; gone(); }); });
     const fd=document.getElementById('f-dash'); if(fd) fd.onchange=()=>{ push(); c.dash=!!fd.value; render(); save(); };
-    if(c.type==='XT'||c.type==='XTM'){ const fr=document.getElementById('f-ref'); if(fr) fr.addEventListener('change',()=>{ dropDeadWires(); render(); save(); }); }
+    if(XTS.has(c.type)){ const fr=document.getElementById('f-ref'); if(fr) fr.addEventListener('change',()=>{
+      if(c.type==='XT'&&S.comps.some(o=>o.id!==c.id&&o.type==='XT'&&o.ref===c.ref&&String(o.tn)===String(c.tn))){
+        c.tn=String(Math.max(0,...S.comps.filter(o=>o.id!==c.id&&o.type==='XT'&&o.ref===c.ref).map(o=>parseInt(o.tn,10)||0))+1);
+        toast(`Номер занят в ${c.ref} — клемма получила ${c.ref}:${c.tn}`); }
+      const k=dropDeadWires(); render(); save(); if(k) toast(`Убрано проводов к исчезнувшим клеммам: ${k}. Вернуть — «Отменить»`); }); }
     const fl=document.getElementById('f-lead'); if(fl) fl.onchange=()=>{ push(); c.lead=fl.value; render(); save(); };
     // число каналов контроллера: провода к исчезнувшим выводам убираем
     ['ndi','ndq','nai','naq'].forEach(k=>{ const i=document.getElementById('f-'+k); if(!i) return;
