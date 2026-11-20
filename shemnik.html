@@ -200,6 +200,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-r
       <button id="b-bom" title="Показать или скрыть перечень элементов на листе">▦ Перечень</button>
       <button id="b-route" title="Переключить: автотрассировка с обходом элементов или простой уголок"></button>
       <button id="b-fit" title="Показать всё">⤢ Вся схема</button>
+      <button id="b-lang" class="lang"></button>
     </div>
   </header>
   <main>
@@ -259,6 +260,11 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-r
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 const G = 20, NS = 'http://www.w3.org/2000/svg';
+// ——— язык интерфейса (настройка браузера) и стандарт оформления (свойство проекта: ГОСТ или ISO) ———
+let LANG='ru'; try{ if(localStorage.getItem('shemnik-lang')==='en') LANG='en'; }catch(e){}
+const EN=()=>LANG==='en';
+const L=(ru,en)=>LANG==='en'?en:ru;
+const ISO=()=>!!S&&S.std==='iso';
 // Символы по ГОСТ/IEC: префиксы R, C, VD, HL, SA, GB, K. Выводы в локальных координатах.
 const T = {
   R:   {name:'Резистор', pre:'R', val:'1 кОм', pins:[['1',-40,0],['2',40,0]], box:[-40,-12,80,24],
@@ -414,7 +420,7 @@ T.QS.k='Э'; ['EIN','EOUT','GND','VCC'].forEach(k=>T[k].m=true);   // m — мо
 Object.assign(T.BP,{pair:['BPH','BPP'], dev:'Датчик давления', short:'4…20 мА', prio:1});
 T.YVE.pair=['YVH','YVP'];
 // описание элемента для конкретного экземпляра: у контроллера выводы и размер зависят от числа входов/выходов
-const tpCache=new WeakMap();
+let tpCache=new WeakMap();
 function TP(c){ const t=T[c.type]; if(!t.dyn) return t;
   const key=t.dyn.key?t.dyn.key(c):JSON.stringify([c.ndi,c.ndq,c.nai,c.naq]), hit=tpCache.get(c);
   if(hit&&hit.key===key) return hit.v;
@@ -465,6 +471,37 @@ T.K.short='13-14'; T.K.prio=0; Object.assign(T.KNO,{short:'NO', prio:0}); Object
 // Нумерация выводов контактов по МЭК 60947: первая цифра — порядковый номер контакта у этого реле,
 // вторая — функция (1-2 размыкающий NC, 3-4 замыкающий NO). Внутри вывод хранится как '13'/'14'/'11'/'12'.
 const RC=new Set(['KNO','KNC']);
+// английские названия и номиналы по умолчанию: [name, val, dev, short]; при смене языка T переписывается на месте
+const TEN={R:['Resistor','1 kΩ'], C:['Capacitor','100 nF'], VD:['Diode','1N4007'], HL:['LED','red'], HLL:['Indicator lamp','green, 24 V'],
+  QF:['Circuit breaker','C10'], QS:['Fuse disconnector','gG 6 A','Fuse disconnector'], XT:['Terminal','','Terminal strip','terminal'],
+  XTM:['Terminal strip','',null,'terminal strip'], RECT:['Rectangle','A1'], TV:['Transformer','230/24 V'], G:['Power supply','24 V DC, 5 A'],
+  M1:['Motor 1~','0.37 kW'], M3:['Motor 3~','1.5 kW'], NOTE:['Note (text)','Note text'],
+  SBO:['Push button NO','Start',null,'button NO'], SBC:['Push button NC','Stop',null,'button NC'], SA:['Switch',''], GB:['Battery','9 V'],
+  KNO:['Contact NO',''], KNC:['Contact NC',''], K:['PLC contact (LAD)','I0.0'], KM:['PLC output','Q0.0'], KA:['Relay coil','24 V DC','Relay','coil'],
+  YV:['Solenoid valve','NC, 24 V'], SP:['Pressure switch','0.5 MPa'], FW:['Water filter','100 µm'], BV:['Ball valve','DN25'],
+  YVH:['Solenoid valve','NC, 24 V',null,'valve'], YVE:['Valve coil','NC, 24 V','Solenoid valve','coil'],
+  SPH:['Pressure switch (sensor)','0.5 MPa','Pressure switch','sensor'], SPE:['Pressure switch contact','0.5 MPa','Pressure switch','contact'],
+  HIN:['Line inlet','Cold water'], HOUT:['Line outlet','Drain'], BAR:['Intrinsic safety barrier','KFD2-STC4-Ex1.2O'],
+  BP:['Pressure transmitter','0…10 bar','Pressure transmitter','4…20 mA'], BPH:['Pressure transmitter (PT)','0…10 bar','Pressure transmitter','sensor'],
+  PLC:['Controller (PLC)','S7-1215C'], SM:['AI module (SM 1231)','SM 1231 AI4','Analog input module'],
+  PIN:['Air inlet','Air 6 bar'], POUT:['Air outlet','Consumer'], KR:['Pressure reducer','0…10 bar'],
+  RD:['Pressure regulator','0…6 bar','Pressure regulator','regulator'], RDE:['Pressure regulator (control)','0…6 bar','Pressure regulator','control'],
+  YVP:['Pneumatic valve','NC, 24 V','Pneumatic valve','valve'], BPP:['Pressure transmitter (PT)','0…10 bar','Pressure transmitter','sensor'],
+  BFP:['Flow sensor (FT)','0…500 l/min','Flow sensor','sensor'], BFE:['Flow sensor','0…500 l/min','Flow sensor','4…20 mA'],
+  VP:['Manual valve','G1/4'], EIN:['Line inlet (el.)','L1'], EOUT:['Line outlet (el.)','L1'], GND:['Ground',''], VCC:['Power','+24 V']};
+const TRU={};
+function applyLangT(){
+  Object.keys(T).forEach(k=>{ const t=T[k];
+    if(!TRU[k]) TRU[k]={name:t.name, val:t.val, dev:t.dev, short:t.short, d:t.d};
+    const ru=TRU[k], en=TEN[k];
+    if(!EN()||!en){ Object.assign(t,ru); return; }
+    t.name=en[0]; t.val=en[1]; if(ru.dev!==undefined) t.dev=en[2]||en[0]; if(ru.short!==undefined&&en[3]) t.short=en[3];
+    t.d=ru.d.replace('>мА<','>mA<'); });
+  tpCache=new WeakMap();
+}
+// внутренние имена выводов (ключи проводов) остаются, на чертеже — по-английски
+const PINEN={'вх':'in','вых':'out','0В':'0V'};
+const pinTxt=p=>(EN()&&PINEN[p])||p;
 function contactPos(c){
   const manual=parseInt(c.pos,10); if(manual>0) return manual;
   if(!c.ref) return 1;
@@ -474,7 +511,7 @@ function contactPos(c){
   let n=0; for(const o of same){ do n++; while(taken.has(n)); if(o.id===c.id) return n; }
   return 1;
 }
-const pinLabel=(c,p)=>RC.has(c.type)?String(contactPos(c))+p.slice(-1):c.type==='XT'?xtNo(c):c.type==='XTM'?p.slice(0,-1):p;
+const pinLabel=(c,p)=>RC.has(c.type)?String(contactPos(c))+p.slice(-1):c.type==='XT'?xtNo(c):c.type==='XTM'?p.slice(0,-1):pinTxt(p);
 const repLabel=o=>RC.has(o.type)?`${T[o.type].short} ${pinLabel(o,T[o.type].pins[0][0])}-${pinLabel(o,T[o.type].pins[1][0])}`:(T[o.type].short||T[o.type].name);
 const kindAllows=(kind,type)=>{ const t=T[type]; if(t.k==='*') return true; if(kind==='М') return t.k==='М'||!!t.m; return kind==='С' ? !t.split : t.k===kind; };
 // ——— клеммы ———
@@ -533,9 +570,12 @@ function noteLayout(c){
   return {box:[0,-h-2,w,h+4], d, tip:lead==='none'?null:[tx,ty]};
 }
 const KIND={Э:'Э — электрическая', М:'М — монтажная (соединений)', Г:'Г — гидравлическая', П:'П — пневматическая', С:'совмещённая'};
+const KIND_EN={Э:'E — electrical', М:'W — wiring (connections)', Г:'H — hydraulic', П:'P — pneumatic', С:'combined'};
+const kindName=k=>(EN()?KIND_EN:KIND)[k];
+const kindLetter=k=>k==='С'?'·':EN()?({Э:'E',М:'W',Г:'H',П:'P'})[k]||k:k;
 let S;
 const defStamp=()=>({code:'', title:'', org:'', litera:'', people:{}});
-const blank=()=>({comps:[], wires:[], n:1, sheets:[{id:'s1',name:'Лист 1',kind:'С'}], cur:'s1', stamp:defStamp()});
+const blank=()=>({comps:[], wires:[], n:1, sheets:[{id:'s1',name:L('Лист 1','Sheet 1'),kind:'С'}], cur:'s1', stamp:defStamp(), std:EN()?'iso':'gost'});
 // Приведение загруженного проекта к безопасному виду: файл мог прийти от кого угодно (git, почта),
 // а id, вид листа и числа попадают в разметку без экранирования — поэтому всё проверяем здесь.
 const ID_RE=/^[\w-]{1,40}$/;
@@ -548,7 +588,8 @@ function migrate(d){
   const sid=new Set();
   d.sheets=(Array.isArray(d.sheets)?d.sheets:[]).filter(s=>s&&ID_RE.test(s.id)&&!sid.has(s.id)&&sid.add(s.id));
   d.sheets.forEach(s=>{ if(!KIND[s.kind]) s.kind='С'; s.name=str(s.name); if(s.code!==undefined) s.code=str(s.code); });
-  if(!d.sheets.length) d.sheets=[{id:'s1',name:'Лист 1',kind:'С'}];
+  if(!d.sheets.length) d.sheets=[{id:'s1',name:L('Лист 1','Sheet 1'),kind:'С'}];
+  d.std=d.std==='iso'?'iso':'gost';
   if(!d.sheets.some(s=>s.id===d.cur)) d.cur=d.sheets[0].id;
   // элементы: известный тип, уникальный id, числа — числа, строки — строки
   const cid=new Set();
@@ -580,7 +621,7 @@ function migrate(d){
   const maxN=Math.max(0,...[...d.sheets,...d.comps,...d.wires].map(o=>parseInt(String(o.id).replace(/^\D+/,''),10)||0));
   d.n=Math.max(num(d.n,1),maxN+1);
   d.wires.forEach(w=>{ if(!w.id) w.id='w'+(d.n++); });
-  if(dropped) setTimeout(()=>toast(`Выброшено битых проводов из файла: ${dropped}`),300);
+  if(dropped) setTimeout(()=>toast(L(`Выброшено битых проводов из файла: ${dropped}`,`Broken wires dropped from the file: ${dropped}`)),300);
   return d;
 }
 S = blank();
@@ -753,7 +794,7 @@ const esc = s => String(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&g
 let fileHandle=null, fileName='', dirty=false;
 try{ const f=JSON.parse(localStorage.getItem('shemnik-file')||'null'); if(f){ fileName=f.name||''; dirty=!!f.dirty; } }catch(e){}
 function updFile(){ const el=document.getElementById('fname'); if(!el) return;
-  el.textContent=(fileName||'новый проект')+(dirty?' ●':''); el.title=dirty?'Есть несохранённые изменения — Ctrl+S':'Файл проекта сохранён'; }
+  el.textContent=(fileName||L('новый проект','new project'))+(dirty?' ●':''); el.title=dirty?L('Есть несохранённые изменения — Ctrl+S','Unsaved changes — Ctrl+S'):L('Файл проекта сохранён','Project file saved'); }
 function save(){ try{ localStorage.setItem('shemnik', JSON.stringify(S)); localStorage.setItem('shemnik-file', JSON.stringify({name:fileName, dirty})); }catch(e){} updFile(); }
 function push(){ hist.push(JSON.stringify(S)); if(hist.length>60) hist.shift(); dirty=true; }
 function undo(){ if(!hist.length) return; S=JSON.parse(hist.pop()); sel=null; pending=null; stampOpen=false; dirty=true; render(); save(); }
@@ -794,7 +835,7 @@ function compSVG(c, forExport){
     const items=[];
     if((c.io||isAutoIO(c))&&ioAddr(c)) items.push(['%'+ioAddr(c), null]);
     if(c.ref) S.comps.forEach(o=>{ if(o.id!==c.id&&o.ref===c.ref&&!BOM_SKIP.has(o.type)&&!(CT.has(c.type)&&CT.has(o.type))&&!(c.type==='XT'&&o.type==='XT')){   // у контакта — ссылка на катушку, не на соседние контакты; у клеммы — на клеммник
-      const txt=repLabel(o)+' → л.'+sheetNo(sheetOf(o)); if(!items.some(it=>it[0]===txt)) items.push([txt, o.id]); } });
+      const txt=repLabel(o)+L(' → л.',' → sh.')+sheetNo(sheetOf(o)); if(!items.some(it=>it[0]===txt)) items.push([txt, o.id]); } });
     items.slice(0,4).forEach(([txt,oid],k)=>{
       const side=t.lx!==undefined;
       const [x,y,anc] = vert ? [-18, 26+k*12, 'end']
@@ -805,7 +846,7 @@ function compSVG(c, forExport){
   if(EFLAG.has(c.type)&&c.val){
     S.comps.filter(o=>o.id!==c.id&&EFLAG.has(o.type)&&o.val===c.val&&sheetOf(o)!==sheetOf(c)).slice(0,3).forEach((o,k)=>{
       const [x,y,anc]=vert?[-18,18+k*12,'end']:[t.lv[0],22+k*12,'start'];
-      lbl+=`<text class="lbl xr go"${forExport?'':` data-xref="${o.id}"`} x="${x}" y="${y}" text-anchor="${anc}">${o.type==='EIN'?'ввод':'выход'} → л.${sheetNo(sheetOf(o))}</text>`; });
+      lbl+=`<text class="lbl xr go"${forExport?'':` data-xref="${o.id}"`} x="${x}" y="${y}" text-anchor="${anc}">${o.type==='EIN'?L('ввод','in'):L('выход','out')} → ${L('л.','sh.')}${sheetNo(sheetOf(o))}</text>`; });
   }
   // номера выводов у контактов и катушки реле — как на реальной схеме
   if(t.tnTop) t.pins.forEach(([p,px,py])=>{ const [x,y]=rp(px+3,py+12,c.rot);
@@ -817,7 +858,7 @@ function compSVG(c, forExport){
   if(c.type==='NOTE'&&s&&!forExport&&t.tip) lbl+=`<circle class="tiph" data-tip="${c.id}" cx="${t.tip[0]}" cy="${t.tip[1]}" r="7"/>`;
   // контроллер: ручка размера в углу корпуса (вбок — ширина, вниз — шаг выводов)
   if(t.rsz&&s&&!forExport){ const [hx,hy]=rp(t.rsz[0],t.rsz[1],c.rot);
-    lbl+=`<rect class="rszh" data-rsz="${c.id}" x="${hx-7}" y="${hy-7}" width="14" height="14" rx="2"><title>Тяни: вбок — ширина корпуса, вниз — шаг выводов</title></rect>`; }
+    lbl+=`<rect class="rszh" data-rsz="${c.id}" x="${hx-7}" y="${hy-7}" width="14" height="14" rx="2"><title>${L('Тяни: вбок — ширина корпуса, вниз — шаг выводов','Drag: sideways — body width, down — pin pitch')}</title></rect>`; }
   let pins='';
   if(!forExport) t.pins.forEach(([p,px,py,k])=>{
     const [x,y]=rp(px,py,c.rot), key=c.id+':'+p;
@@ -836,7 +877,7 @@ function wireSVG(w, forExport){
 // ——— перечень элементов (ГОСТ 2.701): одинаковые элементы с подряд идущими номерами сводятся в одну строку
 const BOM_SKIP=new Set(['GND','VCC','HIN','HOUT','EIN','EOUT','PIN','POUT','NOTE','RECT']);
 const EFLAG=new Set(['EIN','EOUT']);
-const COLS=[[90,'Поз. обозн.'],[270,'Наименование'],[44,'Кол.'],[130,'Примечание']];
+const COLS=[[90,'Поз. обозн.','Ref. des.'],[270,'Наименование','Description'],[44,'Кол.','Qty'],[130,'Примечание','Remarks']];
 const BW=COLS.reduce((s,c)=>s+c[0],0), BT=26, BH=24, BR=20;
 function bomRows(){
   const parse=r=>{ const m=/^(.*?)(\d+)$/.exec(r||''); return m?[m[1],+m[2]]:[r||'',0]; };
@@ -847,7 +888,7 @@ function bomRows(){
     else { if((T[c.type].prio??1)>(T[cur.c.type].prio??1)) cur.c=c; if(!cur.note&&c.note) cur.note=c.note; } });
   const list=[...byRef.values()].map(({c,note})=>{ const [p,n]=parse(c.ref), t=T[c.type];
     return {ref:c.ref, p, n, name:(t.dev||t.name)+(c.val?' '+c.val:''), note}; });
-  list.sort((a,b)=>a.p.localeCompare(b.p,'ru')||a.n-b.n);
+  list.sort((a,b)=>a.p.localeCompare(b.p,LANG)||a.n-b.n);
   const rows=[];
   for(const it of list){ const l=rows[rows.length-1];
     if(l&&it.n>0&&l.p===it.p&&l.name===it.name&&l.note===it.note&&it.n===l.last+1){ l.last=it.n; l.refs.push(it.ref); }
@@ -862,12 +903,12 @@ function bomGeom(){
 function bomSVG(){
   const g=bomGeom(); if(!g) return '';
   let s=`<g class="bomg" data-bom="1" transform="translate(${g.x} ${g.y})"><rect class="bg" width="${g.w}" height="${g.h}"/>`;
-  s+=`<text class="lbl bth" x="${g.w/2}" y="${BT-9}" text-anchor="middle" style="font-size:13px">Перечень элементов</text>`;
+  s+=`<text class="lbl bth" x="${g.w/2}" y="${BT-9}" text-anchor="middle" style="font-size:13px">${L('Перечень элементов','Parts list')}</text>`;
   s+=`<rect class="bt o" x="0" y="${BT}" width="${g.w}" height="${g.h-BT}"/><line class="bt o" x1="0" y1="${BT+BH}" x2="${g.w}" y2="${BT+BH}"/>`;
   let cx=0;
-  COLS.forEach(([w,h],i)=>{ s+=`<text class="lbl bth" x="${cx+w/2}" y="${BT+16}" text-anchor="middle">${h}</text>`; cx+=w;
+  COLS.forEach(([w,hr,he],i)=>{ const h=L(hr,he); s+=`<text class="lbl bth" x="${cx+w/2}" y="${BT+16}" text-anchor="middle">${h}</text>`; cx+=w;
     if(i<COLS.length-1) s+=`<line class="bt o" x1="${cx}" y1="${BT}" x2="${cx}" y2="${g.h}"/>`; });
-  const rows=g.rows.length?g.rows:[{pos:'',name:'Нет элементов',qty:'',note:''}];
+  const rows=g.rows.length?g.rows:[{pos:'',name:L('Нет элементов','No items'),qty:'',note:''}];
   rows.forEach((r,i)=>{ const y=BT+BH+i*BR;
     if(i) s+=`<line class="bt" x1="0" y1="${y}" x2="${g.w}" y2="${y}"/>`;
     let cx=0;
@@ -878,7 +919,7 @@ function bomSVG(){
   return s+'</g>';
 }
 function bomCSV(){
-  return ['Поз. обозначение;Наименование;Кол.;Примечание', ...bomRows().map(r=>[r.pos,r.name,r.qty,r.note].map(csvq).join(';'))].join('\n');
+  return [L('Поз. обозначение;Наименование;Кол.;Примечание','Ref. designation;Description;Qty;Remarks'), ...bomRows().map(r=>[r.pos,r.name,r.qty,r.note].map(csvq).join(';'))].join('\n');
 }
 // ——— таблица входов/выходов PLC по всему проекту ———
 function ioRows(){
@@ -895,8 +936,8 @@ function ioRows(){
 }
 function renderIO(){
   const rows=ioRows();
-  document.getElementById('iol').innerHTML = rows.length ? rows.map(r=>`<li${r.dup?' class="bad" title="Адрес занят несколькими элементами"':''}><b>${r.addr}</b>${esc(r.tag)} · ${esc(r.desc)} <span style="color:var(--muted)">л.${r.sheet}${r.auto?' · по схеме':''}${r.wired?` · а провод на %${r.wired}`:r.dup?' · конфликт':''}</span></li>`).join('')
-    : '<li class="muted">Впиши адрес PLC (I0.1, Q0.0) в свойствах элемента</li>';
+  document.getElementById('iol').innerHTML = rows.length ? rows.map(r=>`<li${r.dup?` class="bad" title="${L('Адрес занят несколькими элементами','Address used by several items')}"`:''}><b>${r.addr}</b>${esc(r.tag)} · ${esc(r.desc)} <span style="color:var(--muted)">${L('л.','sh.')}${r.sheet}${r.auto?L(' · по схеме',' · from wiring'):''}${r.wired?L(` · а провод на %${r.wired}`,` · but wired to %${r.wired}`):r.dup?L(' · конфликт',' · conflict'):''}</span></li>`).join('')
+    : `<li class="muted">${L('Впиши адрес PLC (I0.1, Q0.0) в свойствах элемента','Enter a PLC address (I0.1, Q0.0) in the item properties')}</li>`;
 }
 // столбцы как у таблицы PLC-тегов TIA Portal
 function tiaCSV(){
@@ -923,7 +964,9 @@ function render(){
   AUTOIO = autoIO();
   ROUTES = S.route==='simple' ? null : routeAll();
   const rb=document.getElementById('b-route');
-  rb.textContent = S.route==='simple' ? '⌐ Провода: уголком' : '⌁ Провода: трассировка';
+  rb.textContent = S.route==='simple' ? L('⌐ Провода: уголком','⌐ Wires: L-shape') : L('⌁ Провода: трассировка','⌁ Wires: auto-route');
+  const lb=document.getElementById('b-lang'); lb.textContent=EN()?'RU · ГОСТ':'EN · ISO';
+  lb.title=EN()?'Русский интерфейс и оформление по ГОСТ (2.104)':'English interface and ISO drawing standard (ISO 5457 frame, ISO 7200 title block)';
   rb.setAttribute('aria-pressed', S.route==='simple'?'false':'true');
   gw.innerHTML = curWires().map(w=>wireSVG(w)).join('') + dotsSVG();
   gc.innerHTML = compsSVG(curComps());
@@ -945,30 +988,30 @@ function render(){
 
 function renderProps(){
   const el=document.getElementById('props');
-  if(view==='stamp'){ el.innerHTML=`<h2>Штамп</h2><p class="muted">Заполни поля — штамп ляжет на все листы при экспорте в PDF с рамкой. Вернуться к чертежу — вкладка листа сверху.</p>`; return; }
+  if(view==='stamp'){ el.innerHTML=`<h2>${L('Штамп','Title block')}</h2><p class="muted">${L('Заполни поля — штамп ляжет на все листы при экспорте в PDF с рамкой. Вернуться к чертежу — вкладка листа сверху.','Fill in the fields — the title block goes on every sheet when exporting a framed PDF. Back to the drawing — a sheet tab above.')}</p>`; return; }
   if(sel&&sel.k==='m'){ const cs=sel.ids.map(comp).filter(Boolean), by={};
     cs.forEach(c=>{ const n=T[c.type].name; by[n]=(by[n]||0)+1; });
-    el.innerHTML=`<h2>Выделено: ${cs.length}</h2><p class="muted">${Object.entries(by).map(([n,k])=>esc(n)+(k>1?' ×'+k:'')).join(', ')}</p>
-      <div class="row" style="margin-top:8px"><button id="b-mdel">✕ Удалить выделенные</button></div>
-      <p class="muted" style="margin-top:8px">Тяни любой из выделенных — двигается вся группа. Стрелки — сдвиг на клетку. Shift+клик — добавить или убрать элемент. <kbd>Esc</kbd> — снять выделение.</p>`;
+    el.innerHTML=`<h2>${L('Выделено','Selected')}: ${cs.length}</h2><p class="muted">${Object.entries(by).map(([n,k])=>esc(n)+(k>1?' ×'+k:'')).join(', ')}</p>
+      <div class="row" style="margin-top:8px"><button id="b-mdel">${L('✕ Удалить выделенные','✕ Delete selected')}</button></div>
+      <p class="muted" style="margin-top:8px">${L('Тяни любой из выделенных — двигается вся группа. Стрелки — сдвиг на клетку. Shift+клик — добавить или убрать элемент. <kbd>Esc</kbd> — снять выделение.','Drag any selected item — the whole group moves. Arrows — move by one cell. Shift+click — add or remove an item. <kbd>Esc</kbd> — clear selection.')}</p>`;
     document.getElementById('b-mdel').onclick=delSel; return; }
   if(sel&&sel.k==='c'){ const c=comp(sel.id), t=TP(c);
     el.innerHTML=`<h2>${t.name}</h2>
-      <div class="field"><label for="f-ref">Обозн.</label><input id="f-ref" value="${esc(c.ref)}"></div>
-      <div class="field"><label for="f-val">${c.type==='K'||c.type==='KM'?'Адрес PLC':c.type==='SP'?'Уставка':c.type==='FW'?'Тонкость':c.type==='BV'?'Ду':c.type==='HIN'||c.type==='HOUT'?'Среда':EFLAG.has(c.type)?'Цепь':c.type==='NOTE'?'Текст':c.type==='RECT'?'Подпись':c.type==='XT'||c.type==='XTM'?'Тип клемм':'Номинал'}</label>${c.type==='NOTE'?`<textarea id="f-val" rows="3" style="width:100%;box-sizing:border-box;resize:vertical">${esc(c.val)}</textarea>`:`<input id="f-val" value="${esc(c.val)}"${EFLAG.has(c.type)?' list="netnames" placeholder="L1, N, PE, +24 В"':''}>`}</div>
-      ${c.type==='NOTE'?`<div class="field"><label for="f-lead">Выноска</label><select id="f-lead">${[['dot','с точкой'],['arrow','со стрелкой'],['none','без выноски']].map(([v,l])=>`<option value="${v}"${(c.lead||'dot')===v?' selected':''}>${l}</option>`).join('')}</select></div><p class="muted" style="margin-bottom:6px">Тяни кружок на конце выноски, чтобы указать нужное место. Новая строка — Enter.</p>`:''}
-      ${EFLAG.has(c.type)?`<datalist id="netnames">${[...new Set(['L1','L2','L3','N','PE','+24 В','0 В',...S.comps.filter(o=>EFLAG.has(o.type)||o.type==='VCC').map(o=>o.val).filter(Boolean)])].map(v=>`<option value="${esc(v)}">`).join('')}</datalist><p class="muted" style="margin-bottom:6px">Флажки с одинаковым именем — одна цепь, даже на разных листах.</p>`:''}
-      ${BOM_SKIP.has(c.type)?'':`<div class="field"><label for="f-note">Примечание</label><input id="f-note" value="${esc(c.note||'')}" placeholder="в перечень"></div>`}
-      ${c.type==='XT'?`<div class="field"><label for="f-tn">№ клеммы</label><input id="f-tn" value="${esc(c.tn||'')}" placeholder="1, 2, PE"></div><p class="muted" style="margin-bottom:6px">Клеммы с одним обозначением (${esc(c.ref)}) — один клеммник. Обе стороны клеммы — одна цепь.</p>`:''}
-      ${c.type==='XTM'?`<div class="field"><label for="f-nt">Клемм</label><input id="f-nt" type="number" min="1" max="60" value="${parseInt(c.nt,10)>0?xtN(c):''}" placeholder="авто: ${xtN({ref:c.ref})}"></div><p class="muted" style="margin-bottom:6px">Пусто — по наибольшему номеру клеммы ${esc(c.ref)} на принципиальной схеме. Левый и правый вывод клеммы — одна цепь.</p>`:''}
-      ${c.type==='RECT'?`<div class="field"><label for="f-pl">Выводы слева</label><input id="f-pl" value="${esc(c.pl||'')}" placeholder="A1, 13, 23"></div><div class="field"><label for="f-pr">Выводы справа</label><input id="f-pr" value="${esc(c.pr||'')}" placeholder="A2, 14, 24"></div><div class="field"><label for="f-dash">Линия</label><select id="f-dash"><option value="">сплошная</option><option value="1"${c.dash?' selected':''}>пунктир</option></select></div><p class="muted" style="margin-bottom:6px">Без выводов — рамка (шкаф, узел): провода идут сквозь неё, выделяется за контур. С выводами — условное устройство для монтажной схемы. Размер — квадратик в углу. Сейчас ${2*t.hw}×${2*t.hh}.</p>`:''}
-      ${c.type==='PLC'?[['ndi','Входы DI'],['ndq','Выходы DQ'],['nai','Входы AI'],['naq','Выходы AQ']].map(([k,l])=>`<div class="field"><label for="f-${k}">${l}</label><input id="f-${k}" type="number" min="0" max="32" value="${plcN(c,k)}"></div>`).join('')+'<p class="muted" style="margin-bottom:6px">Адреса как у S7-1200: I0.0…, Q0.0…, аналоговые IW64… и QW64….</p>':''}
-      ${c.type==='SM'?`<div class="field"><label for="f-nch">Каналов</label><input id="f-nch" type="number" min="1" max="8" value="${smCh(c)}"></div><div class="field"><label for="f-base">Адрес IW</label><input id="f-base" type="number" min="0" max="1022" step="2" value="${smBase(c)}"></div><p class="muted" style="margin-bottom:6px">Каналы IW${smBase(c)}…IW${smBase(c)+2*(smCh(c)-1)}. Начальный адрес — как в конфигурации TIA: слот 2 — 96, слот 3 — 112, слот 4 — 128. Датчик ищется по выводу «+» канала.</p>`:''}
-      ${t.rsz&&c.type!=='RECT'?`<p class="muted" style="margin-bottom:6px">Размер: тяни квадратик в углу корпуса — вбок ширина, вниз шаг выводов. Сейчас ${2*clampG(c.pw,PLC_W,60)}×шаг ${clampG(c.pp,PLC_P,G)}.</p>`
-        +((c.pw!==undefined||c.pp!==undefined)?'<div class="row" style="margin-bottom:6px"><button id="b-plcrst">↺ Размер по умолчанию</button></div>':''):''}
-      ${!BOM_SKIP.has(c.type)&&t.k!=='Г'&&c.type!=='K'&&c.type!=='KM'&&!t.noIo?`<div class="field"><label for="f-io">Адрес PLC</label><input id="f-io" value="${esc(c.io||'')}" placeholder="${AUTOIO.has(c.id)?'авто: '+AUTOIO.get(c.id):'I0.1 / Q0.0'}" title="Пусто — адрес берётся по подключению к контроллеру"></div>`:''}
-      ${RC.has(c.type)?`<div class="field"><label for="f-pos">№ контакта</label><input id="f-pos" value="${esc(c.pos||'')}" placeholder="авто: ${contactPos(c)}" inputmode="numeric"></div>`:''}
-      <p class="muted">Выводы: ${t.pins.map(p=>pinLabel(c,p[0])).join(', ')} · поворот ${c.rot}° · лист ${sheetNo(sheetOf(c))}</p>
+      <div class="field"><label for="f-ref">${L('Обозн.','Ref.')}</label><input id="f-ref" value="${esc(c.ref)}"></div>
+      <div class="field"><label for="f-val">${c.type==='K'||c.type==='KM'?L('Адрес PLC','PLC address'):c.type==='SP'?L('Уставка','Setpoint'):c.type==='FW'?L('Тонкость','Mesh'):c.type==='BV'?L('Ду','DN'):c.type==='HIN'||c.type==='HOUT'?L('Среда','Medium'):EFLAG.has(c.type)?L('Цепь','Net'):c.type==='NOTE'?L('Текст','Text'):c.type==='RECT'?L('Подпись','Label'):c.type==='XT'||c.type==='XTM'?L('Тип клемм','Terminal type'):L('Номинал','Rating')}</label>${c.type==='NOTE'?`<textarea id="f-val" rows="3" style="width:100%;box-sizing:border-box;resize:vertical">${esc(c.val)}</textarea>`:`<input id="f-val" value="${esc(c.val)}"${EFLAG.has(c.type)?` list="netnames" placeholder="L1, N, PE, ${L('+24 В','+24 V')}"`:''}>`}</div>
+      ${c.type==='NOTE'?`<div class="field"><label for="f-lead">${L('Выноска','Leader')}</label><select id="f-lead">${[['dot',L('с точкой','with dot')],['arrow',L('со стрелкой','with arrow')],['none',L('без выноски','no leader')]].map(([v,l])=>`<option value="${v}"${(c.lead||'dot')===v?' selected':''}>${l}</option>`).join('')}</select></div><p class="muted" style="margin-bottom:6px">${L('Тяни кружок на конце выноски, чтобы указать нужное место. Новая строка — Enter.','Drag the circle at the leader tip to point at the spot. New line — Enter.')}</p>`:''}
+      ${EFLAG.has(c.type)?`<datalist id="netnames">${[...new Set(['L1','L2','L3','N','PE',L('+24 В','+24 V'),L('0 В','0 V'),...S.comps.filter(o=>EFLAG.has(o.type)||o.type==='VCC').map(o=>o.val).filter(Boolean)])].map(v=>`<option value="${esc(v)}">`).join('')}</datalist><p class="muted" style="margin-bottom:6px">${L('Флажки с одинаковым именем — одна цепь, даже на разных листах.','Flags with the same name are one net, even on different sheets.')}</p>`:''}
+      ${BOM_SKIP.has(c.type)?'':`<div class="field"><label for="f-note">${L('Примечание','Remarks')}</label><input id="f-note" value="${esc(c.note||'')}" placeholder="${L('в перечень','to parts list')}"></div>`}
+      ${c.type==='XT'?`<div class="field"><label for="f-tn">${L('№ клеммы','Terminal no.')}</label><input id="f-tn" value="${esc(c.tn||'')}" placeholder="1, 2, PE"></div><p class="muted" style="margin-bottom:6px">${L(`Клеммы с одним обозначением (${esc(c.ref)}) — один клеммник. Обе стороны клеммы — одна цепь.`,`Terminals with one designation (${esc(c.ref)}) form one terminal strip. Both sides of a terminal are one net.`)}</p>`:''}
+      ${c.type==='XTM'?`<div class="field"><label for="f-nt">${L('Клемм','Terminals')}</label><input id="f-nt" type="number" min="1" max="60" value="${parseInt(c.nt,10)>0?xtN(c):''}" placeholder="${L('авто','auto')}: ${xtN({ref:c.ref})}"></div><p class="muted" style="margin-bottom:6px">${L(`Пусто — по наибольшему номеру клеммы ${esc(c.ref)} на принципиальной схеме. Левый и правый вывод клеммы — одна цепь.`,`Empty — by the highest ${esc(c.ref)} terminal number on the schematic. Left and right pins of a terminal are one net.`)}</p>`:''}
+      ${c.type==='RECT'?`<div class="field"><label for="f-pl">${L('Выводы слева','Pins left')}</label><input id="f-pl" value="${esc(c.pl||'')}" placeholder="A1, 13, 23"></div><div class="field"><label for="f-pr">${L('Выводы справа','Pins right')}</label><input id="f-pr" value="${esc(c.pr||'')}" placeholder="A2, 14, 24"></div><div class="field"><label for="f-dash">${L('Линия','Line')}</label><select id="f-dash"><option value="">${L('сплошная','solid')}</option><option value="1"${c.dash?' selected':''}>${L('пунктир','dashed')}</option></select></div><p class="muted" style="margin-bottom:6px">${L('Без выводов — рамка (шкаф, узел): провода идут сквозь неё, выделяется за контур. С выводами — условное устройство для монтажной схемы. Размер — квадратик в углу. Сейчас','No pins — a frame (cabinet, assembly): wires pass through it, select it by the outline. With pins — a generic device for a wiring diagram. Size — the square in the corner. Now')} ${2*t.hw}×${2*t.hh}.</p>`:''}
+      ${c.type==='PLC'?[['ndi',L('Входы DI','Inputs DI')],['ndq',L('Выходы DQ','Outputs DQ')],['nai',L('Входы AI','Inputs AI')],['naq',L('Выходы AQ','Outputs AQ')]].map(([k,l])=>`<div class="field"><label for="f-${k}">${l}</label><input id="f-${k}" type="number" min="0" max="32" value="${plcN(c,k)}"></div>`).join('')+`<p class="muted" style="margin-bottom:6px">${L('Адреса как у S7-1200: I0.0…, Q0.0…, аналоговые IW64… и QW64….','Addresses as on S7-1200: I0.0…, Q0.0…, analog IW64… and QW64….')}</p>`:''}
+      ${c.type==='SM'?`<div class="field"><label for="f-nch">${L('Каналов','Channels')}</label><input id="f-nch" type="number" min="1" max="8" value="${smCh(c)}"></div><div class="field"><label for="f-base">${L('Адрес IW','IW address')}</label><input id="f-base" type="number" min="0" max="1022" step="2" value="${smBase(c)}"></div><p class="muted" style="margin-bottom:6px">${L('Каналы','Channels')} IW${smBase(c)}…IW${smBase(c)+2*(smCh(c)-1)}. ${L('Начальный адрес — как в конфигурации TIA: слот 2 — 96, слот 3 — 112, слот 4 — 128. Датчик ищется по выводу «+» канала.','Start address as in the TIA configuration: slot 2 — 96, slot 3 — 112, slot 4 — 128. The sensor is found via the channel “+” pin.')}</p>`:''}
+      ${t.rsz&&c.type!=='RECT'?`<p class="muted" style="margin-bottom:6px">${L('Размер: тяни квадратик в углу корпуса — вбок ширина, вниз шаг выводов. Сейчас','Size: drag the square at the body corner — sideways width, down pin pitch. Now')} ${2*clampG(c.pw,PLC_W,60)}×${L('шаг','pitch')} ${clampG(c.pp,PLC_P,G)}.</p>`
+        +((c.pw!==undefined||c.pp!==undefined)?`<div class="row" style="margin-bottom:6px"><button id="b-plcrst">${L('↺ Размер по умолчанию','↺ Default size')}</button></div>`:''):''}
+      ${!BOM_SKIP.has(c.type)&&t.k!=='Г'&&c.type!=='K'&&c.type!=='KM'&&!t.noIo?`<div class="field"><label for="f-io">${L('Адрес PLC','PLC address')}</label><input id="f-io" value="${esc(c.io||'')}" placeholder="${AUTOIO.has(c.id)?L('авто','auto')+': '+AUTOIO.get(c.id):'I0.1 / Q0.0'}" title="${L('Пусто — адрес берётся по подключению к контроллеру','Empty — the address comes from the connection to the controller')}"></div>`:''}
+      ${RC.has(c.type)?`<div class="field"><label for="f-pos">${L('№ контакта','Contact no.')}</label><input id="f-pos" value="${esc(c.pos||'')}" placeholder="${L('авто','auto')}: ${contactPos(c)}" inputmode="numeric"></div>`:''}
+      <p class="muted">${L('Выводы','Pins')}: ${t.pins.map(p=>pinLabel(c,p[0])).join(', ')} · ${L('поворот','rotation')} ${c.rot}° · ${L('лист','sheet')} ${sheetNo(sheetOf(c))}</p>
       ${repHTML(c)}`;
     // правка обозначения/примечания переносится на все представления устройства; номинал — на парное (клапан ↔ катушка)
     const f=(id,key)=>{const i=document.getElementById(id); if(!i) return; let linked=[];
@@ -979,52 +1022,54 @@ function renderProps(){
         gc.innerHTML=compsSVG(curComps()); document.getElementById('gb').innerHTML=bomSVG(); renderNets(); renderIO(); save();});};
     f('f-ref','ref'); f('f-val','val'); f('f-note','note'); f('f-io','io'); f('f-pos','pos'); f('f-tn','tn');
     // клеммник: число клемм; прямоугольник: выводы и линия — провода к исчезнувшим выводам убираем
-    const gone=()=>{ const k=dropDeadWires(); render(); save(); if(k) toast(`Убрано проводов к исчезнувшим выводам: ${k}. Вернуть — «Отменить»`); };
+    const gone=()=>{ const k=dropDeadWires(); render(); save(); if(k) toast(L(`Убрано проводов к исчезнувшим выводам: ${k}. Вернуть — «Отменить»`,`Wires to removed pins dropped: ${k}. Undo brings them back`)); };
     const fnt=document.getElementById('f-nt'); if(fnt) fnt.addEventListener('change',()=>{ push(); const v=parseInt(fnt.value,10); if(v>0) c.nt=Math.min(60,v); else delete c.nt; gone(); });
     ['pl','pr'].forEach(k=>{ const i=document.getElementById('f-'+k); if(i) i.addEventListener('change',()=>{ push(); c[k]=i.value; gone(); }); });
     const fd=document.getElementById('f-dash'); if(fd) fd.onchange=()=>{ push(); c.dash=!!fd.value; render(); save(); };
     if(XTS.has(c.type)){ const fr=document.getElementById('f-ref'); if(fr) fr.addEventListener('change',()=>{
       if(c.type==='XT'&&S.comps.some(o=>o.id!==c.id&&o.type==='XT'&&o.ref===c.ref&&String(o.tn)===String(c.tn))){
         c.tn=String(Math.max(0,...S.comps.filter(o=>o.id!==c.id&&o.type==='XT'&&o.ref===c.ref).map(o=>parseInt(o.tn,10)||0))+1);
-        toast(`Номер занят в ${c.ref} — клемма получила ${c.ref}:${c.tn}`); }
-      const k=dropDeadWires(); render(); save(); if(k) toast(`Убрано проводов к исчезнувшим клеммам: ${k}. Вернуть — «Отменить»`); }); }
+        toast(L(`Номер занят в ${c.ref} — клемма получила ${c.ref}:${c.tn}`,`Number taken in ${c.ref} — the terminal became ${c.ref}:${c.tn}`)); }
+      const k=dropDeadWires(); render(); save(); if(k) toast(L(`Убрано проводов к исчезнувшим клеммам: ${k}. Вернуть — «Отменить»`,`Wires to removed terminals dropped: ${k}. Undo brings them back`)); }); }
     const fl=document.getElementById('f-lead'); if(fl) fl.onchange=()=>{ push(); c.lead=fl.value; render(); save(); };
     // число каналов контроллера: провода к исчезнувшим выводам убираем
     ['ndi','ndq','nai','naq'].forEach(k=>{ const i=document.getElementById('f-'+k); if(!i) return;
       i.addEventListener('change',()=>{ push(); c[k]=plcN({[k]:i.value},k);
         const before=S.wires.length;
         S.wires=S.wires.filter(w=>[w.a,w.b].every(([id,p])=>{ const o=comp(id); return !o||TP(o).pins.some(q=>q[0]===p); }));
-        render(); save(); if(S.wires.length<before) toast(`Убрано проводов к исчезнувшим выводам: ${before-S.wires.length}. Вернуть — «Отменить»`); }); });
+        render(); save(); if(S.wires.length<before) toast(L(`Убрано проводов к исчезнувшим выводам: ${before-S.wires.length}. Вернуть — «Отменить»`,`Wires to removed pins dropped: ${before-S.wires.length}. Undo brings them back`)); }); });
     // модуль AI: число каналов (лишние провода убираем, типовой номинал AI4/AI8 подстраиваем) и начальный адрес
     [['nch',smCh],['base',smBase]].forEach(([k,fn])=>{ const i=document.getElementById('f-'+k); if(!i) return;
       i.addEventListener('change',()=>{ push(); c[k]=fn({[k]:i.value});
         if(k==='nch'&&/^SM 1231 AI[48]$/.test(c.val)&&(smCh(c)===4||smCh(c)===8)) c.val=`SM 1231 AI${smCh(c)}`;   // только реальные варианты AI4 / AI8
         const before=S.wires.length;
         S.wires=S.wires.filter(w=>[w.a,w.b].every(([id,p])=>{ const o=comp(id); return !o||TP(o).pins.some(q=>q[0]===p); }));
-        render(); save(); if(S.wires.length<before) toast(`Убрано проводов к исчезнувшим выводам: ${before-S.wires.length}. Вернуть — «Отменить»`); }); });
+        render(); save(); if(S.wires.length<before) toast(L(`Убрано проводов к исчезнувшим выводам: ${before-S.wires.length}. Вернуть — «Отменить»`,`Wires to removed pins dropped: ${before-S.wires.length}. Undo brings them back`)); }); });
     const pr=document.getElementById('b-plcrst'); if(pr) pr.onclick=()=>{ push(); delete c.pw; delete c.pp; render(); save(); };
     el.querySelectorAll('[data-rep]').forEach(b=>{ b.onclick=()=>addRep(c,b.dataset.rep); });
   } else if(sel&&sel.k==='w'){ const w=S.wires.find(x=>x.id===sel.id);
     const n=e=>(comp(e[0]).ref||comp(e[0]).val)+'.'+pinLabel(comp(e[0]),e[1]);
-    el.innerHTML=`<h2>${({h:'Труба',n:'Пневмолиния'})[pk(w.a.join(':'))]||'Провод'}</h2><p class="muted" style="font-family:var(--mono)">${esc(n(w.a))} → ${esc(n(w.b))}</p>${w.pts
-      ? `<p class="muted" style="margin-top:6px"><b style="color:var(--accent)">Закреплён вручную</b> · ${wirePts(w).length-2} изл. Трассировщик его не трогает, другие провода обходят.</p><div class="row" style="margin-top:8px"><button id="b-unpin">⌁ Вернуть автотрассировку</button></div>`
+    el.innerHTML=`<h2>${({h:L('Труба','Pipe'),n:L('Пневмолиния','Air line')})[pk(w.a.join(':'))]||L('Провод','Wire')}</h2><p class="muted" style="font-family:var(--mono)">${esc(n(w.a))} → ${esc(n(w.b))}</p>${w.pts
+      ? `<p class="muted" style="margin-top:6px"><b style="color:var(--accent)">${L('Закреплён вручную','Pinned manually')}</b> · ${wirePts(w).length-2} ${L('изл. Трассировщик его не трогает, другие провода обходят.','bends. The router leaves it alone, other wires go around it.')}</p><div class="row" style="margin-top:8px"><button id="b-unpin">${L('⌁ Вернуть автотрассировку','⌁ Back to auto-routing')}</button></div>`
       : S.route==='simple'
-      ? '<div class="row" style="margin-top:8px"><button id="b-flip">⌐ Сменить излом</button></div>'
-      : `<p class="muted" style="margin-top:6px">Путь проложен трассировщиком: ${wirePts(w).length-2} изл.</p>`}
-      <p class="muted" style="margin-top:6px">Тяни квадратные ручки на сегментах, чтобы сдвинуть участок. После этого путь закрепится.</p>`;
+      ? `<div class="row" style="margin-top:8px"><button id="b-flip">${L('⌐ Сменить излом','⌐ Flip bend')}</button></div>`
+      : `<p class="muted" style="margin-top:6px">${L('Путь проложен трассировщиком','Path laid by the router')}: ${wirePts(w).length-2} ${L('изл.','bends')}</p>`}
+      <p class="muted" style="margin-top:6px">${L('Тяни квадратные ручки на сегментах, чтобы сдвинуть участок. После этого путь закрепится.','Drag the square handles on segments to move a section. The path then becomes pinned.')}</p>`;
     const fb=document.getElementById('b-flip'); if(fb) fb.onclick=()=>{push(); w.flip=!w.flip; render(); save();};
     const ub=document.getElementById('b-unpin'); if(ub) ub.onclick=()=>{push(); delete w.pts; render(); save();};
   } else {
     const s=curSheet();
-    el.innerHTML=`<h2>Лист ${sheetNo(s.id)} из ${S.sheets.length}</h2>
-      <div class="field"><label for="f-sname">Название</label><input id="f-sname" value="${esc(s.name)}"></div>
-      <div class="field"><label for="f-skind">Вид</label><select id="f-skind">${Object.entries(KIND).map(([k,v])=>`<option value="${k}"${k===s.kind?' selected':''}>${v}</option>`).join('')}</select></div>
-      <div class="field"><label for="f-scode">Код в штампе</label><input id="f-scode" value="${esc(s.code||'')}" placeholder="${esc(defCode(s)||'нет')}"></div>
-      <p class="muted" style="margin-bottom:6px">В штампе: ${esc(designation(s)||'—')}</p>
-      <div class="row"><button id="b-sleft"${sheetNo(s.id)===1?' disabled':''} title="Сдвинуть лист раньше">◀ Влево</button><button id="b-sright"${sheetNo(s.id)===S.sheets.length?' disabled':''} title="Сдвинуть лист дальше">Вправо ▶</button><button id="b-sdel"${S.sheets.length<2?' disabled':''}>✕ Удалить лист</button></div>
-      <p class="muted" style="margin-top:4px">Порядок листов можно менять и перетаскиванием вкладок.</p>
-      <p class="muted" style="margin-top:8px">Одно устройство на разных листах — одно позиционное обозначение. Выбери клапан, прессостат или реле и добавь его второе представление на другой лист. Синие ссылки «→ л.N» под элементом ведут туда.</p>
-      <h2 style="margin-top:14px">Как пользоваться</h2><p class="muted">ЛКМ по пустому месту — рамка: слева направо выделяет целиком попавшие элементы, справа налево — все задетые. ПКМ или зажатое колесо — двигать чертёж, <kbd>Ctrl+A</kbd> — выделить всё на листе.</p><p class="muted" style="margin-top:6px">Добавь элемент кнопкой сверху и перетащи его. Провод: тяни от вывода к выводу или тапни вывод, потом второй. <kbd>R</kbd> поворот, <kbd>Del</kbd> удалить, <kbd>F</kbd> излом провода, <kbd>Ctrl+Z</kbd> отмена.</p><p class="muted" style="margin-top:6px">Синие выводы — гидравлика: фильтр, кран, порты клапана и прессостата. Их можно соединять только трубой.</p><p class="muted" style="margin-top:6px">Трассировка сама обходит элементы и не пускает разные цепи по одной линии. Кнопка «Провода» переключает на простой уголок.</p>`;
+    el.innerHTML=`<h2>${L('Лист','Sheet')} ${sheetNo(s.id)} ${L('из','of')} ${S.sheets.length}</h2>
+      <div class="field"><label for="f-sname">${L('Название','Name')}</label><input id="f-sname" value="${esc(s.name)}"></div>
+      <div class="field"><label for="f-skind">${L('Вид','Kind')}</label><select id="f-skind">${Object.keys(KIND).map(k=>`<option value="${k}"${k===s.kind?' selected':''}>${kindName(k)}</option>`).join('')}</select></div>
+      <div class="field"><label for="f-scode">${L('Код в штампе','Code in title block')}</label><input id="f-scode" value="${esc(s.code||'')}" placeholder="${esc(defCode(s)||L('нет','none'))}"></div>
+      <p class="muted" style="margin-bottom:6px">${L('В штампе','In title block')}: ${esc(designation(s)||'—')}</p>
+      <div class="row"><button id="b-sleft"${sheetNo(s.id)===1?' disabled':''} title="${L('Сдвинуть лист раньше','Move sheet earlier')}">${L('◀ Влево','◀ Left')}</button><button id="b-sright"${sheetNo(s.id)===S.sheets.length?' disabled':''} title="${L('Сдвинуть лист дальше','Move sheet later')}">${L('Вправо ▶','Right ▶')}</button><button id="b-sdel"${S.sheets.length<2?' disabled':''}>${L('✕ Удалить лист','✕ Delete sheet')}</button></div>
+      <p class="muted" style="margin-top:4px">${L('Порядок листов можно менять и перетаскиванием вкладок.','Sheets can also be reordered by dragging the tabs.')}</p>
+      ${EN()?`<p class="muted" style="margin-top:8px">One device on different sheets — one reference designation. Select a valve, pressure switch or relay and add its second representation on another sheet. Blue links “→ sh.N” under the item lead there.</p>
+      <h2 style="margin-top:14px">How to use</h2><p class="muted">Left-click on empty space — selection box: left to right selects items fully inside, right to left — everything it touches. Right button or held wheel — pan the drawing, <kbd>Ctrl+A</kbd> — select all on the sheet.</p><p class="muted" style="margin-top:6px">Add an item with a button above and drag it. Wire: drag from pin to pin, or tap a pin, then the second one. <kbd>R</kbd> rotate, <kbd>Del</kbd> delete, <kbd>F</kbd> flip wire bend, <kbd>Ctrl+Z</kbd> undo.</p><p class="muted" style="margin-top:6px">Blue pins are hydraulics: filter, valve, ports of the valve and pressure switch. They connect only with a pipe.</p><p class="muted" style="margin-top:6px">Auto-routing goes around items and keeps different nets off one line. The “Wires” button switches to a simple L-shape.</p>`
+      :`<p class="muted" style="margin-top:8px">Одно устройство на разных листах — одно позиционное обозначение. Выбери клапан, прессостат или реле и добавь его второе представление на другой лист. Синие ссылки «→ л.N» под элементом ведут туда.</p>
+      <h2 style="margin-top:14px">Как пользоваться</h2><p class="muted">ЛКМ по пустому месту — рамка: слева направо выделяет целиком попавшие элементы, справа налево — все задетые. ПКМ или зажатое колесо — двигать чертёж, <kbd>Ctrl+A</kbd> — выделить всё на листе.</p><p class="muted" style="margin-top:6px">Добавь элемент кнопкой сверху и перетащи его. Провод: тяни от вывода к выводу или тапни вывод, потом второй. <kbd>R</kbd> поворот, <kbd>Del</kbd> удалить, <kbd>F</kbd> излом провода, <kbd>Ctrl+Z</kbd> отмена.</p><p class="muted" style="margin-top:6px">Синие выводы — гидравлика: фильтр, кран, порты клапана и прессостата. Их можно соединять только трубой.</p><p class="muted" style="margin-top:6px">Трассировка сама обходит элементы и не пускает разные цепи по одной линии. Кнопка «Провода» переключает на простой уголок.</p>`}`;
     const n=document.getElementById('f-sname');
     n.addEventListener('focus',push,{once:true});
     n.addEventListener('input',()=>{ s.name=n.value; renderTabs(); save(); });
@@ -1038,7 +1083,7 @@ function renderProps(){
       const gone=new Set(S.comps.filter(c=>sheetOf(c)===s.id).map(c=>c.id));
       S.comps=S.comps.filter(c=>!gone.has(c.id)); S.wires=S.wires.filter(w=>!gone.has(w.a[0])&&!gone.has(w.b[0]));
       S.sheets=S.sheets.filter(x=>x.id!==s.id); if(S.bom&&S.bom.sheet===s.id) S.bom.show=false;
-      S.cur=S.sheets[0].id; render(); fit(); save(); toast('Лист удалён. Вернуть можно через «Отменить»'); };
+      S.cur=S.sheets[0].id; render(); fit(); save(); toast(L('Лист удалён. Вернуть можно через «Отменить»','Sheet deleted. Undo brings it back')); };
   }
 }
 // кнопки «добавить второе представление» для устройств, у которых есть пара
@@ -1048,10 +1093,10 @@ function repHTML(c){
   pts.forEach(pt=>{ const multi=CT.has(pt);   // контактов у реле может быть много, катушка/корпус — один
     const fits=S.sheets.filter(s=>(s.id!==home||multi)&&kindAllows(s.kind,pt)); if(fits.length) anyFit=true;
     fits.filter(s=>multi||!S.comps.some(o=>o.ref===c.ref&&o.type===pt&&sheetOf(o)===s.id))
-      .forEach(s=>{ btns+=`<button data-rep="${s.id}|${pt}">＋ ${esc(T[pt].short)}${S.sheets.length>1?' на л.'+sheetNo(s.id):''}</button>`; }); });
-  if(btns) return `<p class="muted" style="margin-top:8px">${CT.has(pts[0])?'Контакты':'Другое представление'} ${esc(c.ref)}:</p><div class="row" style="margin-top:4px">${btns}</div>`;
+      .forEach(s=>{ btns+=`<button data-rep="${s.id}|${pt}">＋ ${esc(T[pt].short)}${S.sheets.length>1?L(' на л.',' on sh.')+sheetNo(s.id):''}</button>`; }); });
+  if(btns) return `<p class="muted" style="margin-top:8px">${CT.has(pts[0])?L('Контакты','Contacts'):L('Другое представление','Other representation')} ${esc(c.ref)}:</p><div class="row" style="margin-top:4px">${btns}</div>`;
   if(anyFit) return '';
-  return `<p class="muted" style="margin-top:8px">Для второго представления ${esc(c.ref)} (${esc(T[pts[0]].short)}) добавь лист вида «${KIND[T[pts[0]].k]||KIND.С}».</p>`;
+  return `<p class="muted" style="margin-top:8px">${L(`Для второго представления ${esc(c.ref)} (${esc(T[pts[0]].short)}) добавь лист вида «${kindName(T[pts[0]].k)||kindName('С')}».`,`For the second representation of ${esc(c.ref)} (${esc(T[pts[0]].short)}) add a sheet of kind “${kindName(T[pts[0]].k)||kindName('С')}”.`)}</p>`;
 }
 function addRep(c,rep){
   const [sid,pt]=rep.split('|');
@@ -1065,7 +1110,7 @@ function addRep(c,rep){
   const clash=()=>{ const r=compRect(n); r[1]-=30; r[3]+=20; return busy.some(b=>r[0]<b[2]&&r[2]>b[0]&&r[1]<b[3]&&r[3]>b[1]); };
   for(let k=0;k<60&&clash();k++) n.y+=G*2;
   S.comps.push(n); switchSheet(sid, n.id); save();
-  toast(`Добавлено на лист ${sheetNo(sid)}: ${T[pt].short} ${c.ref}`);
+  toast(L(`Добавлено на лист ${sheetNo(sid)}: ${T[pt].short} ${c.ref}`,`Added to sheet ${sheetNo(sid)}: ${T[pt].short} ${c.ref}`));
 }
 // ——— листы ———
 const vbs={};
@@ -1076,10 +1121,10 @@ function switchSheet(id, selId){
 }
 function renderTabs(){
   document.getElementById('tabs').innerHTML =
-    `<button class="tab" role="tab" aria-selected="${view==='stamp'}" data-stamp="1" title="Основная надпись для всех листов"><span class="kd">▭</span> 0 · Штамп</button>`
+    `<button class="tab" role="tab" aria-selected="${view==='stamp'}" data-stamp="1" title="${L('Основная надпись для всех листов','Title block for all sheets')}"><span class="kd">▭</span> 0 · ${L('Штамп','Title block')}</button>`
     + S.sheets.map((s,i)=>
-    `<button class="tab" role="tab" draggable="true" title="Перетащи, чтобы поменять порядок листов" aria-selected="${view==='sheet'&&s.id===S.cur}" data-sheet="${s.id}"><span class="kd">${s.kind==='С'?'·':s.kind}</span> ${i+1} · ${esc(s.name)}</button>`).join('')
-    + '<button class="tab add" data-add="1" title="Добавить лист">＋ Лист</button>';
+    `<button class="tab" role="tab" draggable="true" title="${L('Перетащи, чтобы поменять порядок листов','Drag to reorder sheets')}" aria-selected="${view==='sheet'&&s.id===S.cur}" data-sheet="${s.id}"><span class="kd">${kindLetter(s.kind)}</span> ${i+1} · ${esc(s.name)}</button>`).join('')
+    + `<button class="tab add" data-add="1" title="${L('Добавить лист','Add sheet')}">${L('＋ Лист','＋ Sheet')}</button>`;
 }
 document.getElementById('tabs').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b) return;
@@ -1087,8 +1132,8 @@ document.getElementById('tabs').addEventListener('click',e=>{
   if(b.dataset.sheet&&view==='stamp'){ view='sheet'; if(b.dataset.sheet===S.cur){ render(); return; } }
   if(b.dataset.sheet&&b.dataset.sheet!==S.cur){ switchSheet(b.dataset.sheet); save(); }
   if(b.dataset.add){ push(); const ck=curSheet().kind, kind=ck==='Г'?'Э':ck==='Э'?'Г':'Э';
-    const id='s'+(S.n++); S.sheets.push({id, name:(kind==='Г'?'Г3 Гидравлика':'Э3 Электрика'), kind});
-    view='sheet'; switchSheet(id); save(); toast('Лист добавлен. Название и вид меняются в панели справа'); }
+    const id='s'+(S.n++); S.sheets.push({id, name:(kind==='Г'?L('Г3 Гидравлика','Hydraulics'):L('Э3 Электрика','Electrical')), kind});
+    view='sheet'; switchSheet(id); save(); toast(L('Лист добавлен. Название и вид меняются в панели справа','Sheet added. Name and kind are set in the right panel')); }
 });
 function updatePalette(){ const k=curSheet().kind;
   pal.querySelectorAll('.pm:not(.psearch) .pmi').forEach(b=>{ b.hidden=view==='stamp'||!kindAllows(k,b.dataset.type); });
@@ -1097,16 +1142,29 @@ function updatePalette(){ const k=curSheet().kind;
 // ——— редактор штампа (вкладка 0) ———
 function buildStampEd(){
   const st=S.stamp, el=document.getElementById('stampEd');
-  const F=[['code','Обозначение (шифр изделия)','АБВГ.421000.001'],['title','Наименование изделия','Узел подготовки воды'],['org','Организация','ООО «…»'],['litera','Литера','О1']];
-  el.innerHTML=`<div><h2 class="sth">Основная надпись · ГОСТ 2.104</h2>
-    <p class="muted">Одна на весь проект. Лист 1 получает форму 1, остальные — форму 2а (185×15 мм). К шифру добавляется код листа (Э3, Г3, П3) — он меняется в свойствах листа.</p>
-    <label class="stf" style="flex-direction:row;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="st-full"${st.full?' checked':''}> полная форма 1 со строками изменений (185×55 мм) — иначе сокращённая 185×30</label></div>
+  const iso=ISO();
+  const F=iso
+    ? [['code',L('Обозначение (identification number)','Identification number'),'WTU-001'],['title',L('Наименование (title)','Title'),L('Узел подготовки воды','Water treatment unit')],
+       ['org',L('Владелец документа (legal owner)','Legal owner'),'ACME Ltd.'],['dept',L('Ответственный отдел','Responsible department'),'Engineering'],
+       ['techref',L('Техническая ссылка','Technical reference'),''],['status',L('Статус документа','Document status'),'Released'],
+       ['rev',L('Изменение (rev.)','Revision index'),'A'],['issued',L('Дата выпуска','Date of issue'),new Date().toISOString().slice(0,10)],['lang',L('Язык','Language code'),LANG]]
+    : [['code',L('Обозначение (шифр изделия)','Designation (product code)'),'АБВГ.421000.001'],['title',L('Наименование изделия','Product name'),L('Узел подготовки воды','Water treatment unit')],['org',L('Организация','Organisation'),'ООО «…»'],['litera',L('Литера','Litera'),'О1']];
+  const roles=iso?ROLES.filter(r=>ISO_ROLES[r[0]]):ROLES;
+  const stdSel=`<label class="stf" style="flex-direction:row;align-items:center;gap:8px;margin-top:8px"><span>${L('Стандарт оформления','Drawing standard')}</span><select id="st-std"><option value="gost"${iso?'':' selected'}>${L('ГОСТ 2.104 (рамка 20/5 мм, основная надпись)','GOST 2.104 (frame 20/5 mm, Russian title block)')}</option><option value="iso"${iso?' selected':''}>ISO 5457 + ISO 7200</option></select></label>`;
+  el.innerHTML=iso
+    ? `<div><h2 class="sth">${L('Основная надпись','Title block')} · ISO 7200</h2>
+    <p class="muted">${L('Одна на весь проект, одинаковая на всех листах (180×36 мм). Лист — рамка по ISO 5457: поле 20 мм слева, 10 мм с остальных сторон, центрирующие метки и сетка зон 50 мм (1…6 × A…D).','One for the whole project, the same on every sheet (180×36 mm). The sheet frame follows ISO 5457: 20 mm filing margin on the left, 10 mm on the other sides, centring marks and a 50 mm grid reference system (1…6 × A…D).')}</p>${stdSel}</div>`
+    : `<div><h2 class="sth">${L('Основная надпись','Title block')} · ГОСТ 2.104</h2>
+    <p class="muted">${L('Одна на весь проект. Лист 1 получает форму 1, остальные — форму 2а (185×15 мм). К шифру добавляется код листа (Э3, Г3, П3) — он меняется в свойствах листа.','One for the whole project. Sheet 1 gets form 1, the others form 2a (185×15 mm). The sheet code (Э3, Г3, П3) is appended to the designation — it is set in the sheet properties.')}</p>${stdSel}
+    <label class="stf" style="flex-direction:row;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="st-full"${st.full?' checked':''}> ${L('полная форма 1 со строками изменений (185×55 мм) — иначе сокращённая 185×30','full form 1 with revision rows (185×55 mm) — otherwise the short 185×30')}</label></div>`;
+  el.innerHTML+=`
     <div class="stgrid">${F.map(([k,l,ph])=>`<label class="stf"><span>${l}</span><input id="st-${k}" value="${esc(st[k]||'')}" placeholder="${esc(ph)}"${k==='litera'?' maxlength="3"':''}></label>`).join('')}</div>
-    <table class="stppl"><thead><tr><th></th><th>Фамилия</th><th>Дата</th></tr></thead><tbody>${ROLES.map(([k,l])=>
-      `<tr><th scope="row">${l}</th><td><input id="stp-${k}-n" value="${esc(st.people[k]?.n||'')}" aria-label="${l}: фамилия"></td><td><input id="stp-${k}-d" value="${esc(st.people[k]?.d||'')}" placeholder="мм.гг" aria-label="${l}: дата"></td></tr>`).join('')}</tbody></table>
+    <table class="stppl"><thead><tr><th></th><th>${L('Фамилия','Name')}</th><th>${L('Дата','Date')}</th></tr></thead><tbody>${roles.map(r=>{ const l=iso?ISO_ROLES[r[0]]:L(r[1],r[2]);
+      return `<tr><th scope="row">${l}</th><td><input id="stp-${r[0]}-n" value="${esc(st.people[r[0]]?.n||'')}" aria-label="${l}: ${L('фамилия','name')}"></td><td><input id="stp-${r[0]}-d" value="${esc(st.people[r[0]]?.d||'')}" placeholder="${iso?'YYYY-MM-DD':L('мм.гг','mm.yy')}" aria-label="${l}: ${L('дата','date')}"></td></tr>`; }).join('')}</tbody></table>
     <div class="stprev" id="stprev"></div>`;
-  document.getElementById('st-full').onchange=e=>{ push(); st.full=e.target.checked; previewStamp(); save(); };
-  el.querySelectorAll('input:not([type=checkbox])').forEach(i=>{ i.addEventListener('focus',push,{once:true});
+  const fu=document.getElementById('st-full'); if(fu) fu.onchange=e=>{ push(); st.full=e.target.checked; previewStamp(); save(); };
+  document.getElementById('st-std').onchange=e=>{ push(); S.std=e.target.value; render(); save(); };
+  el.querySelectorAll('input:not([type=checkbox]):not(select)').forEach(i=>{ i.addEventListener('focus',push,{once:true});
     i.addEventListener('input',()=>{ if(i.id.startsWith('st-')) st[i.id.slice(3)]=i.value;
       else { const [,k,f]=i.id.split('-'); (st.people[k] ||= {})[f]=i.value; }
       previewStamp(); save(); }); });
@@ -1114,9 +1172,10 @@ function buildStampEd(){
 }
 function previewStamp(){
   const sh=S.sheets, m=sh.length;
-  let h=`<h2 class="sth">Лист 1 — форма 1${S.stamp.full?' (185×55)':', сокращённая (185×30)'}</h2>${stampSVG(sh[0],1,m,1,4)}`;
-  if(m>1) h+=`<h2 class="sth">${m===2?'Лист 2':'Листы 2–'+m} — форма 2а</h2>${stampSVG(sh[1],2,m,2,4)}`;
-  h+=`<h2 class="sth">Листы проекта</h2><ul class="net">${sh.map((s,i)=>`<li><b>${i+1}</b>${esc(designation(s)||'—')} · ${esc(docName(s))} <span style="color:var(--muted)">(${esc(s.name)})</span></li>`).join('')}</ul>`;
+  let h=ISO() ? `<h2 class="sth">${L('Все листы — ISO 7200 (180×36)','All sheets — ISO 7200 (180×36)')}</h2>${stampSVG(sh[0],1,m,1,4)}`
+    : `<h2 class="sth">${L('Лист 1 — форма 1','Sheet 1 — form 1')}${S.stamp.full?' (185×55)':L(', сокращённая (185×30)',', short (185×30)')}</h2>${stampSVG(sh[0],1,m,1,4)}`;
+  if(m>1&&!ISO()) h+=`<h2 class="sth">${m===2?L('Лист 2','Sheet 2'):L('Листы 2–','Sheets 2–')+m} — ${L('форма 2а','form 2a')}</h2>${stampSVG(sh[1],2,m,2,4)}`;
+  h+=`<h2 class="sth">${L('Листы проекта','Project sheets')}</h2><ul class="net">${sh.map((s,i)=>`<li><b>${i+1}</b>${esc(designation(s)||'—')} · ${esc(docName(s))} <span style="color:var(--muted)">(${esc(s.name)})</span></li>`).join('')}</ul>`;
   document.getElementById('stprev').innerHTML=h;
 }
 
@@ -1135,13 +1194,13 @@ function nets(){
     const name = h==='n'?(pa?(pa[0].val||pa[0].ref):'P'+(j++)): h?(src?(src[0].val||src[0].ref):'L'+(j++)): fl?fl[0].val: g?'GND': v?(v[0].val||v[0].ref): 'N'+(i++);
     const mem0 = cs.filter(([c])=>c.type!=='GND'&&c.type!=='VCC'&&!EFLAG.has(c.type)).map(([c,p])=>(c.ref||c.val)+(c.type==='XT'||c.type==='XTM'?':':'.')+pinLabel(c,p)); const members=[...new Set(mem0)].sort();
     return {name, members, h};
-  }).sort((a,b)=>a.name.localeCompare(b.name,'ru',{numeric:true}));
+  }).sort((a,b)=>a.name.localeCompare(b.name,LANG,{numeric:true}));
 }
 function renderNets(){
   const list=nets(), li=n=>`<li><b>${esc(n.name)}</b>${esc(n.members.join(', ')||'—')}</li>`;
   const e=list.filter(n=>!n.h), h=list.filter(n=>n.h);
-  document.getElementById('nets').innerHTML = e.length? e.map(li).join('') : '<li class="muted">Пока нет соединений</li>';
-  document.getElementById('pipes').innerHTML = h.length? h.map(li).join('') : '<li class="muted">Синие выводы — вода, зелёные — воздух; соединяются трубой</li>';
+  document.getElementById('nets').innerHTML = e.length? e.map(li).join('') : `<li class="muted">${L('Пока нет соединений','No connections yet')}</li>`;
+  document.getElementById('pipes').innerHTML = h.length? h.map(li).join('') : `<li class="muted">${L('Синие выводы — вода, зелёные — воздух; соединяются трубой','Blue pins — water, green — air; connect them with a pipe')}</li>`;
 }
 let toastT;
 function toast(t){ const el=document.getElementById('toast'); el.textContent=t; el.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>{el.hidden=true;},2200); }
@@ -1170,7 +1229,7 @@ function rotSel(){ if(!(sel&&sel.k==='c')) return; const c=comp(sel.id); if(c.ty
 function addWire(a,b){
   if(a===b) return;
   const A=a.split(':'), B=b.split(':');
-  if(pk(a)!==pk(b)){ const nm={'':'электрический вывод',h:'трубу с водой',n:'пневмолинию'}; toast(`Нельзя соединить ${nm[pk(a)]} и ${nm[pk(b)]}`); return; }
+  if(pk(a)!==pk(b)){ const nm=EN()?{'':'an electrical pin',h:'a water pipe',n:'an air line'}:{'':'электрический вывод',h:'трубу с водой',n:'пневмолинию'}; toast(L(`Нельзя соединить ${nm[pk(a)]} и ${nm[pk(b)]}`,`Cannot connect ${nm[pk(a)]} and ${nm[pk(b)]}`)); return; }
   if(S.wires.some(w=>(w.a.join(':')===a&&w.b.join(':')===b)||(w.a.join(':')===b&&w.b.join(':')===a))) return;
   push(); const w={id:'w'+(S.n++), a:A, b:B, flip:false}; S.wires.push(w); sel={k:'w',id:w.id}; save();
 }
@@ -1331,22 +1390,29 @@ document.addEventListener('keydown',e=>{
 // ——— палитра: элементы спрятаны в меню по группам + поиск ———
 const pal=document.getElementById('pal');
 const GROUPS=[
-  ['Питание',      ['VCC','GND','G','TV','QF','QS','GB','EIN','EOUT']],
-  ['Коммутация',   ['SA','SBO','SBC','KNO','KNC','K']],
-  ['Реле и нагрузки',['KA','KM','YVE','RDE','HLL','HL','M1','M3']],
-  ['Датчики',      ['BP','BFE','SPE','SP']],
-  ['Автоматика',   ['PLC','SM','BAR']],
-  ['Клеммы и монтаж',['XT','XTM','RECT']],
-  ['Пассивные',    ['R','C','VD']],
-  ['Гидравлика',   ['HIN','HOUT','BV','FW','YVH','SPH','BPH','YV']],
-  ['Пневматика',   ['PIN','POUT','VP','KR','RD','YVP','BPP','BFP']],
-  ['Оформление',   ['NOTE']],
+  [['Питание','Power'],                ['VCC','GND','G','TV','QF','QS','GB','EIN','EOUT']],
+  [['Коммутация','Switching'],         ['SA','SBO','SBC','KNO','KNC','K']],
+  [['Реле и нагрузки','Relays & loads'],['KA','KM','YVE','RDE','HLL','HL','M1','M3']],
+  [['Датчики','Sensors'],              ['BP','BFE','SPE','SP']],
+  [['Автоматика','Automation'],        ['PLC','SM','BAR']],
+  [['Клеммы и монтаж','Terminals & wiring'],['XT','XTM','RECT']],
+  [['Пассивные','Passive'],            ['R','C','VD']],
+  [['Гидравлика','Hydraulics'],        ['HIN','HOUT','BV','FW','YVH','SPH','BPH','YV']],
+  [['Пневматика','Pneumatics'],        ['PIN','POUT','VP','KR','RD','YVP','BPP','BFP']],
+  [['Оформление','Annotation'],        ['NOTE']],
 ];
-{ const seen=new Set(GROUPS.flatMap(g=>g[1])), rest=Object.keys(T).filter(k=>!seen.has(k)); if(rest.length) GROUPS.push(['Прочее',rest]); }
+{ const seen=new Set(GROUPS.flatMap(g=>g[1])), rest=Object.keys(T).filter(k=>!seen.has(k)); if(rest.length) GROUPS.push([['Прочее','Other'],rest]); }
 const iconSVG=t=>{ const [bx,by,bw,bh]=t.box; return `<svg viewBox="${bx-4} ${by-4} ${bw+8} ${bh+8}" aria-hidden="true"><g class="sym">${t.d}</g></svg>`; };
-const itemBtn=k=>{ const t=T[k]; return `<button type="button" class="pmi" data-type="${k}" title="Добавить: ${esc(t.name)}">${iconSVG(t)}<span>${esc(t.name)}</span><span class="code">${esc(t.pre)}</span></button>`; };
-pal.innerHTML = GROUPS.map(([g,ks],i)=>`<div class="pm"><button type="button" class="pmb" data-menu="${i}" aria-expanded="false" aria-haspopup="true">${g} ▾</button><div class="pmenu" id="pm${i}" hidden>${ks.filter(k=>T[k]).map(itemBtn).join('')}</div></div>`).join('')
-  + `<div class="pm psearch"><input id="psearch" type="search" placeholder="Найти элемент…" autocomplete="off" aria-label="Найти элемент"><div class="pmenu" id="pmS" hidden></div></div>`;
+const itemBtn=k=>{ const t=T[k]; return `<button type="button" class="pmi" data-type="${k}" title="${L('Добавить','Add')}: ${esc(t.name)}">${iconSVG(t)}<span>${esc(t.name)}</span><span class="code">${esc(t.pre)}</span></button>`; };
+function buildPalette(){
+  pal.innerHTML = GROUPS.map(([g,ks],i)=>`<div class="pm"><button type="button" class="pmb" data-menu="${i}" aria-expanded="false" aria-haspopup="true">${L(...g)} ▾</button><div class="pmenu" id="pm${i}" hidden>${ks.filter(k=>T[k]).map(itemBtn).join('')}</div></div>`).join('')
+    + `<div class="pm psearch"><input id="psearch" type="search" placeholder="${L('Найти элемент…','Find item…')}" autocomplete="off" aria-label="${L('Найти элемент','Find item')}"><div class="pmenu" id="pmS" hidden></div></div>`;
+  ps=document.getElementById('psearch'); pmS=document.getElementById('pmS');
+  ps.addEventListener('input',searchPal); ps.addEventListener('focus',searchPal);
+  ps.addEventListener('keydown',e=>{ if(e.key==='Enter'){ const f=pmS.querySelector('.pmi'); if(f){ addComp(f.dataset.type); ps.value=''; pmS.hidden=true; ps.blur(); } } });
+}
+let ps, pmS;
+applyLangT(); buildPalette();
 function closeMenus(except){ pal.querySelectorAll('.pmenu').forEach(m=>{ if(m!==except){ m.hidden=true; } });
   pal.querySelectorAll('.pmb').forEach(b=>{ if(!except||b.nextElementSibling!==except) b.setAttribute('aria-expanded','false'); }); }
 function placeMenu(m){ m.style.left='0'; m.style.right='auto'; const r=m.getBoundingClientRect(); if(r.right>innerWidth-8){ m.style.left='auto'; m.style.right='0'; } }
@@ -1357,14 +1423,11 @@ pal.addEventListener('click',e=>{
 });
 document.addEventListener('pointerdown',e=>{ if(!e.target.closest('#pal')) closeMenus(); },true);
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeMenus(); },true);
-const ps=document.getElementById('psearch'), pmS=document.getElementById('pmS');
 function searchPal(){ const q=ps.value.trim().toLowerCase(), k=curSheet().kind;
   if(!q){ pmS.hidden=true; return; }
   const hits=Object.keys(T).filter(t=>view!=='stamp'&&kindAllows(k,t)&&(T[t].name.toLowerCase().includes(q)||T[t].pre.toLowerCase().includes(q)||(T[t].dev||'').toLowerCase().includes(q))).slice(0,12);
-  pmS.innerHTML=hits.length?hits.map(itemBtn).join(''):'<p class="muted" style="padding:6px 8px">Нет такого элемента на листе этого вида</p>';
+  pmS.innerHTML=hits.length?hits.map(itemBtn).join(''):`<p class="muted" style="padding:6px 8px">${L('Нет такого элемента на листе этого вида','No such item on a sheet of this kind')}</p>`;
   closeMenus(pmS); pmS.hidden=false; placeMenu(pmS); }
-ps.addEventListener('input',searchPal); ps.addEventListener('focus',searchPal);
-ps.addEventListener('keydown',e=>{ if(e.key==='Enter'){ const f=pmS.querySelector('.pmi'); if(f){ addComp(f.dataset.type); ps.value=''; pmS.hidden=true; ps.blur(); } } });
 document.getElementById('b-rot').onclick=rotSel;
 document.getElementById('b-del').onclick=delSel;
 document.getElementById('b-undo').onclick=undo;
@@ -1374,7 +1437,7 @@ document.getElementById('b-bom').onclick=()=>{ push();
   if(S.bom&&S.bom.sheet===S.cur) S.bom.show=!S.bom.show;
   else { const CS=curComps(); let x1=0,y0=0; if(CS.length){ x1=-1e9; y0=1e9; CS.forEach(c=>{x1=Math.max(x1,c.x);y0=Math.min(y0,c.y);}); }
     S.bom={show:true, sheet:S.cur, x:snap(x1+100), y:snap(y0-40)}; }
-  render(); save(); if(S.bom.show){ fit(); toast('Перечень всего проекта на этом листе. Тяни таблицу, чтобы переставить'); } };
+  render(); save(); if(S.bom.show){ fit(); toast(L('Перечень всего проекта на этом листе. Тяни таблицу, чтобы переставить','Parts list of the whole project on this sheet. Drag the table to move it')); } };
 document.getElementById('b-route').onclick=()=>{ push(); S.route = S.route==='simple'?'auto':'simple'; render(); save(); };
 
 // ——— экспорт / импорт ———
@@ -1394,48 +1457,49 @@ function exportSVG(){
 <style>.sym{fill:none;stroke:#000;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.sym .fill,.dot{fill:#000}.sym .thick{stroke-width:5}.w{fill:none;stroke:#000;stroke-width:2}.lbl{font:12px monospace;fill:#000}.lbl.v{fill:#444;font-size:11px}.sym .pp,.pipe .w{stroke:#1f5fa8;stroke-width:4}.dot.pipe{fill:#1f5fa8}.sym .pf{fill:#1f5fa8;stroke:#1f5fa8}.bomg .bg{fill:#fff}.bt{fill:none;stroke:#000;stroke-width:1}.bt.o{stroke-width:2}.lbl.bth{font-size:11px;font-weight:bold}.lbl.xr{font-size:10px;fill:#1f5fa8}.lbl.tn{font-size:9px;fill:#555}.lbl.nm{font-weight:bold}.sym .pa,.air .w{stroke:#1a7a57;stroke-width:3}.dot.air{fill:#1a7a57}.sym .paf{fill:#1a7a57;stroke:#1a7a57}.sym .paw{fill:#fff;stroke:#1a7a57;stroke-width:2}</style>
 <rect x="${x0}" y="${y0}" width="${x1-x0}" height="${y1-y0}" fill="#fff"/>${body}</svg>`;
 }
-document.getElementById('b-io').onclick=()=>{ io.hidden=false; ioT.value=JSON.stringify(S,null,1); msg('Текущая схема в JSON. Можно вставить свой JSON и загрузить.'); };
+document.getElementById('b-io').onclick=()=>{ io.hidden=false; ioT.value=JSON.stringify(S,null,1); msg(L('Текущая схема в JSON. Можно вставить свой JSON и загрузить.','Current diagram as JSON. You can paste your own JSON and load it.')); };
 document.getElementById('io-close').onclick=()=>{ io.hidden=true; };
-document.getElementById('io-json').onclick=()=>{ ioT.value=JSON.stringify(S,null,1); msg('JSON схемы'); };
-document.getElementById('io-svg').onclick=()=>{ ioT.value=exportSVG(); msg('SVG текущего листа');
+document.getElementById('io-json').onclick=()=>{ ioT.value=JSON.stringify(S,null,1); msg(L('JSON схемы','Diagram JSON')); };
+document.getElementById('io-svg').onclick=()=>{ ioT.value=exportSVG(); msg(L('SVG текущего листа','SVG of the current sheet'));
   offer(fname('svg','skhema-l'+sheetNo(S.cur)), new Blob([ioT.value],{type:'image/svg+xml'}), null); };
-document.getElementById('io-bom').onclick=()=>{ ioT.value=bomCSV(); msg('Перечень в CSV, разделитель «;»');
+document.getElementById('io-bom').onclick=()=>{ ioT.value=bomCSV(); msg(L('Перечень в CSV, разделитель «;»','Parts list as CSV, separator “;”'));
   offer(fname('csv','perechen'), new Blob(['﻿'+ioT.value]), null); };
 document.getElementById('io-tia').onclick=()=>{
-  if(!ioRows().length){ ioT.value=''; msg('Нет адресов PLC. Впиши I0.1 / Q0.0 в поле «Адрес PLC» у элементов'); return; }
-  ioT.value=tiaCSV(); msg('Теги PLC: Name; Path; Data Type; Logical Address; Comment — как в таблице тегов TIA');
+  if(!ioRows().length){ ioT.value=''; msg(L('Нет адресов PLC. Впиши I0.1 / Q0.0 в поле «Адрес PLC» у элементов','No PLC addresses. Enter I0.1 / Q0.0 in the “PLC address” field of items')); return; }
+  ioT.value=tiaCSV(); msg(L('Теги PLC: Name; Path; Data Type; Logical Address; Comment — как в таблице тегов TIA','PLC tags: Name; Path; Data Type; Logical Address; Comment — as in the TIA tag table'));
   offer(fname('csv','plc-tags'), new Blob(['﻿'+ioT.value]), null); };
 document.getElementById('io-copy').onclick=()=>{
-  navigator.clipboard.writeText(ioT.value).then(()=>msg('Скопировано'),()=>{ioT.select();msg('Текст выделен, скопируй вручную');});
+  navigator.clipboard.writeText(ioT.value).then(()=>msg(L('Скопировано','Copied')),()=>{ioT.select();msg(L('Текст выделен, скопируй вручную','Text selected, copy it manually'));});
 };
 document.getElementById('io-load').onclick=()=>{
   try{ const d=JSON.parse(ioT.value); if(!Array.isArray(d.comps)||!Array.isArray(d.wires)) throw 0;
-    d.comps.forEach(c=>{ if(!T[c.type]) throw 0; }); push(); S=migrate(d); sel=null; pending=null; render(); fit(); save(); msg('Загружено'); }
-  catch(e){ msg('Не похоже на JSON схемы: нужны поля comps и wires'); }
+    d.comps.forEach(c=>{ if(!T[c.type]) throw 0; }); push(); S=migrate(d); sel=null; pending=null; render(); fit(); save(); msg(L('Загружено','Loaded')); }
+  catch(e){ msg(L('Не похоже на JSON схемы: нужны поля comps и wires','Does not look like diagram JSON: comps and wires fields are required')); }
 };
-document.getElementById('io-new').onclick=()=>{ push(); S=blank(); sel=null; view='sheet'; fileName=''; fileHandle=null; render(); fit(); save(); msg('Пустой лист. Отменить можно через «Отменить»'); };
+document.getElementById('io-new').onclick=()=>{ push(); S=blank(); sel=null; view='sheet'; fileName=''; fileHandle=null; render(); fit(); save(); msg(L('Пустой лист. Отменить можно через «Отменить»','Empty sheet. Undo brings the old one back')); };
 
 // ——— пример: проект из двух листов — гидравлика и электрика одного узла ———
 function sample(){
   const C=(id,type,sheet,x,y,ref,val,more)=>({id,type,sheet,x,y,rot:0,ref,val,...more});
   const W=(id,a,ap,b,bp)=>({id,a:[a,ap],b:[b,bp]});
-  S={n:100, cur:'s1', sheets:[{id:'s1',name:'Г3 Гидравлика',kind:'Г'},{id:'s2',name:'Э3 Электрика',kind:'Э'}],
+  const NC=L('НЗ, 24 В','NC, 24 V');
+  S={n:100, cur:'s1', std:EN()?'iso':'gost', sheets:[{id:'s1',name:L('Г3 Гидравлика','Hydraulics'),kind:'Г'},{id:'s2',name:L('Э3 Электрика','Electrical'),kind:'Э'}],
   comps:[
-    C('g1','HIN','s1',40,100,'IN1','Вода ХВС'), C('g2','BV','s1',160,100,'V1','DN25'), C('g3','FW','s1',280,100,'F1','100 мкм'),
-    C('g4','YVH','s1',420,100,'YV1','НЗ, 24 В'), C('g5','SPH','s1',540,20,'SP1','0,5 МПа',{note:'Danfoss KP35'}),
-    C('g6','HOUT','s1',660,100,'OUT1','Потребитель'),
-    C('e1','VCC','s2',100,40,'PWR1','+24 В'),
-    C('e2','SPE','s2',200,60,'SP1','0,5 МПа',{io:'I0.1',note:'Danfoss KP35'}), C('e3','KA','s2',340,60,'KA1','24 В DC'),
+    C('g1','HIN','s1',40,100,'IN1',L('Вода ХВС','Cold water')), C('g2','BV','s1',160,100,'V1','DN25'), C('g3','FW','s1',280,100,'F1',L('100 мкм','100 µm')),
+    C('g4','YVH','s1',420,100,'YV1',NC), C('g5','SPH','s1',540,20,'SP1',L('0,5 МПа','0.5 MPa'),{note:'Danfoss KP35'}),
+    C('g6','HOUT','s1',660,100,'OUT1',L('Потребитель','Consumer')),
+    C('e1','VCC','s2',100,40,'PWR1',L('+24 В','+24 V')),
+    C('e2','SPE','s2',200,60,'SP1',L('0,5 МПа','0.5 MPa'),{io:'I0.1',note:'Danfoss KP35'}), C('e3','KA','s2',340,60,'KA1',L('24 В DC','24 V DC')),
     C('e4','GND','s2',460,100,'GND1',''),
-    C('e5','KNO','s2',200,200,'KA1',''), C('e6','YVE','s2',340,200,'YV1','НЗ, 24 В',{io:'Q0.0'}),
+    C('e5','KNO','s2',200,200,'KA1',''), C('e6','YVE','s2',340,200,'YV1',NC,{io:'Q0.0'}),
     C('e7','GND','s2',460,240,'GND2',''),
-    C('e8','HLL','s2',340,320,'HL1','зелёная, 24 В',{io:'Q0.1',note:'Давление в норме'}), C('e9','GND','s2',460,360,'GND3','')],
+    C('e8','HLL','s2',340,320,'HL1',L('зелёная, 24 В','green, 24 V'),{io:'Q0.1',note:L('Давление в норме','Pressure OK')}), C('e9','GND','s2',460,360,'GND3','')],
   wires:[
     W('w1','g1','вых','g2','1'), W('w2','g2','2','g3','вх'), W('w3','g3','вых','g4','вх'), W('w4','g4','вых','g6','вх'), W('w5','g4','вых','g5','p'),
     W('w6','e1','1','e2','1'), W('w7','e2','2','e3','A1'), W('w8','e3','A2','e4','1'),
     W('w9','e1','1','e5','13'), W('w10','e5','14','e6','1'), W('w11','e6','2','e7','1'), W('w12','e8','2','e9','1')],
   bom:{show:true, sheet:'s2', x:580, y:20},
-  stamp:{code:'АБВГ.421000.001', title:'Узел подготовки воды', org:'', litera:'', people:{}}};
+  stamp:{code:EN()?'WTU-001':'АБВГ.421000.001', title:L('Узел подготовки воды','Water treatment unit'), org:'', litera:'', people:{}}};
 }
 // ——— растр, PDF, JPG ———
 // доступ к сохранению файлов берём в момент клика: при загрузке страницы окружение может быть ещё не готово
@@ -1453,24 +1517,58 @@ let lastPages=null;   // листы последнего PDF — для запа
 const MAX_SIDE=8000, MAX_AREA=12e6;
 async function rasterize(scale){
   const img=new Image();
-  await new Promise((res,rej)=>{ img.onload=res; img.onerror=()=>rej(new Error('схема не отрисовалась в картинку'));
+  await new Promise((res,rej)=>{ img.onload=res; img.onerror=()=>rej(new Error(L('схема не отрисовалась в картинку','the diagram did not render to an image')));
     img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(exportSVG()); });
   const w=img.width||1, h=img.height||1;
   const s=Math.min(scale, MAX_SIDE/w, MAX_SIDE/h, Math.sqrt(MAX_AREA/(w*h)));
   const cv=document.createElement('canvas'); cv.width=Math.max(1,Math.round(w*s)); cv.height=Math.max(1,Math.round(h*s));
-  const x=cv.getContext('2d'); if(!x) throw new Error('браузер не дал холст для картинки');
+  const x=cv.getContext('2d'); if(!x) throw new Error(L('браузер не дал холст для картинки','the browser gave no canvas for the image'));
   x.fillStyle='#fff'; x.fillRect(0,0,cv.width,cv.height); x.drawImage(img,0,0,cv.width,cv.height);
   return cv;
 }
-const jpegURL=cv=>{ const u=cv.toDataURL('image/jpeg',0.9); if(u.length<100) throw new Error('браузер не смог сохранить лист в картинку'); return u; };
+const jpegURL=cv=>{ const u=cv.toDataURL('image/jpeg',0.9); if(u.length<100) throw new Error(L('браузер не смог сохранить лист в картинку','the browser could not save the sheet as an image')); return u; };
 // ——— основная надпись (штамп) по ГОСТ 2.104: форма 1 — 185×55 на первом листе, форма 2а — 185×15 на последующих ———
-const ROLES=[['dev','Разраб.'],['chk','Пров.'],['tk','Т.контр.'],['nk','Н.контр.'],['app','Утв.']];
+const ROLES=[['dev','Разраб.','Drawn'],['chk','Пров.','Checked'],['tk','Т.контр.','Tech. control'],['nk','Н.контр.','Std. control'],['app','Утв.','Approved']];
+const ISO_ROLES={dev:'Created by', chk:'Checked by', app:'Approved by'};
 const DOCNAME={М:'Схема электрическая соединений', Э:'Схема электрическая принципиальная', Г:'Схема гидравлическая принципиальная', П:'Схема пневматическая принципиальная', С:'Схема принципиальная'};
-const defCode = s => s.kind==='С' ? '' : s.kind==='М' ? 'Э4' : s.kind+'3';
+const DOCNAME_EN={М:'Electrical wiring diagram', Э:'Electrical circuit diagram', Г:'Hydraulic circuit diagram', П:'Pneumatic circuit diagram', С:'Circuit diagram'};
+// коды документов Э3/Г3 — по ГОСТ 2.701; в ISO у всех листов одно обозначение, код листа — только если вписан вручную
+const defCode = s => ISO() || s.kind==='С' ? '' : s.kind==='М' ? 'Э4' : s.kind+'3';
 const sheetCode = s => (s.code&&s.code.trim()) || defCode(s);
 const designation = s => [S.stamp.code, sheetCode(s)].filter(Boolean).join(' ');
-const docName = s => DOCNAME[s.kind]||DOCNAME.С;
+const docName = s => { const d=EN()?DOCNAME_EN:DOCNAME; return d[s.kind]||d.С; };
+// ——— ISO 7200: поле идентификации справа (обозначение, изм., дата выпуска, язык, лист), слева — владелец и подписи ———
+const ISO_SW=180, ISO_SH=36;
+function isoStampSVG(sh, n, m, k){
+  const st=S.stamp, W=ISO_SW, H=ISO_SH, pp=st.people||{};
+  let o=`<svg xmlns="${NS}" viewBox="0 0 ${W} ${H}" width="${W*k}" height="${H*k}" font-family="Arial, Helvetica, sans-serif"><rect width="${W}" height="${H}" fill="#fff"/>`;
+  const Ln=(x1,y1,x2,y2,th)=>{ o+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#000" stroke-width="${th?0.5:0.25}"/>`; };
+  const Tx=(x,y,sz,txt,w,anc='start',b)=>{ if(txt===undefined||txt===null||txt==='') return; txt=String(txt);
+    const fit=w&&txt.length*sz*0.56>w-1.5?` textLength="${w-1.5}" lengthAdjust="spacingAndGlyphs"`:'';
+    o+=`<text x="${x}" y="${y}" font-size="${sz}" text-anchor="${anc}"${b?' font-weight="bold"':''}${fit}>${esc(txt)}</text>`; };
+  // ячейка: подпись мелко в левом верхнем углу, значение ниже
+  const cell=(x,y,w,h,label,val,sz=3)=>{ Tx(x+1,y+2.4,1.8,label); Tx(x+1.2,y+h-2,sz,val,w-1); };
+  // сетка: 4 ряда по 9 мм
+  Ln(0,9,W,9,1); Ln(38,18,78,18); Ln(38,27,W,27,1);
+  Ln(38,0,38,H,1); Ln(78,0,78,H,1); Ln(140,0,140,H,1);
+  Ln(92,27,92,H); Ln(120,27,120,H);
+  cell(0,0,38,9,'Responsible dept.',st.dept);
+  cell(38,0,40,9,'Technical reference',st.techref);
+  cell(78,0,62,9,'Document type',docName(sh));
+  cell(140,0,40,9,'Document status',st.status);
+  Tx(1,11.4,1.8,'Legal owner'); { const t=String(st.org||''); Tx(19,24,3.5,t,36,'middle',true); }
+  const person=(y,key)=>{ const p=pp[key]||{}; Tx(39,y+2.4,1.8,ISO_ROLES[key]); Tx(39.2,y+7,2.8,p.n,26); Tx(77,y+7,2.2,p.d,12,'end'); };
+  person(9,'dev'); person(18,'chk'); person(27,'app');
+  Tx(79,11.4,1.8,'Title, supplementary title'); Tx(109,22.5,4,st.title,60,'middle',true);
+  Tx(141,11.4,1.8,'Identification number'); Tx(160,22.5,4,designation(sh),38,'middle',true);
+  cell(78,27,14,9,'Rev.',st.rev,3.5); cell(92,27,28,9,'Date of issue',st.issued);
+  cell(120,27,20,9,'Lang.',st.lang||LANG,3);
+  Tx(141,29.4,1.8,'Sheet'); Tx(160,34,3.5,`${n}/${m}`,38,'middle');
+  o+=`<rect x="0.25" y="0.25" width="${W-0.5}" height="${H-0.5}" fill="none" stroke="#000" stroke-width="0.5"/>`;
+  return o+'</svg>';
+}
 function stampSVG(sh, n, m, form, k){
+  if(ISO()) return isoStampSVG(sh,n,m,k);
   const st=S.stamp, W=185, H=form===1?(st.full?55:30):15;
   let o=`<svg xmlns="${NS}" viewBox="0 0 ${W} ${H}" width="${W*k}" height="${H*k}" font-family="Arial, Helvetica, sans-serif" font-style="italic"><rect width="${W}" height="${H}" fill="#fff"/>`;
   const L=(x1,y1,x2,y2,th)=>{ o+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#000" stroke-width="${th?0.5:0.25}"/>`; };
@@ -1514,13 +1612,35 @@ function stampSVG(sh, n, m, form, k){
 function stampImage(sh,n,m){ const img=new Image();
   return new Promise((res,rej)=>{ img.onload=()=>res(img); img.onerror=rej;
     img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(stampSVG(sh,n,m,n===1?1:2,8)); }); }
-// Лист A4 альбомный: рамка (поля 20/5 мм) + штамп в правом нижнем углу + схема в свободном поле
+// ISO 5457, A4 альбомный: рамка 0,7 мм в 20 мм слева и 10 мм с остальных сторон, центрирующие метки,
+// сетка зон по 50 мм от центра листа: цифры слева направо сверху и снизу, буквы (без I и O) сверху вниз слева и справа
+function isoFrame(x, d, W, H){
+  const fx=20*d, fy=10*d, fw=W-30*d, fh=H-20*d, cxm=W/2, cym=H/2;
+  x.strokeStyle='#000'; x.fillStyle='#000';
+  x.lineWidth=0.7*d; x.strokeRect(fx,fy,fw,fh);
+  x.beginPath();   // центрирующие метки: от края листа на 5 мм внутрь рамки
+  x.moveTo(cxm,0); x.lineTo(cxm,fy+5*d); x.moveTo(cxm,H); x.lineTo(cxm,fy+fh-5*d);
+  x.moveTo(0,cym); x.lineTo(fx+5*d,cym); x.moveTo(W,cym); x.lineTo(fx+fw-5*d,cym); x.stroke();
+  const cuts=(c,a,b)=>{ const v=[c]; for(let p=c-50*d;p>a+1;p-=50*d) v.unshift(p); for(let p=c+50*d;p<b-1;p+=50*d) v.push(p); return v; };
+  const xs=cuts(cxm,fx,fx+fw), ys=cuts(cym,fy,fy+fh), band=5*d;
+  x.lineWidth=0.35*d; x.beginPath();
+  xs.forEach(p=>{ if(Math.abs(p-cxm)<1) return; x.moveTo(p,fy); x.lineTo(p,fy-band); x.moveTo(p,fy+fh); x.lineTo(p,fy+fh+band); });
+  ys.forEach(p=>{ if(Math.abs(p-cym)<1) return; x.moveTo(fx,p); x.lineTo(fx-band,p); x.moveTo(fx+fw,p); x.lineTo(fx+fw+band,p); });
+  x.stroke();
+  x.font=`${3.5*d}px Arial, Helvetica, sans-serif`; x.textAlign='center'; x.textBaseline='middle';
+  const bx=[fx,...xs,fx+fw], by=[fy,...ys,fy+fh], LET='ABCDEFGHJKLMNPQRSTUVWXYZ';
+  for(let i=0;i<bx.length-1;i++){ const m=(bx[i]+bx[i+1])/2; x.fillText(String(i+1),m,fy-band/2); x.fillText(String(i+1),m,fy+fh+band/2); }
+  for(let j=0;j<by.length-1;j++){ const m=(by[j]+by[j+1])/2; x.fillText(LET[j],fx-band/2,m); x.fillText(LET[j],fx+fw+band/2,m); }
+  return {fx,fy,fw,fh};
+}
+// Лист A4 альбомный: рамка (ГОСТ: поля 20/5 мм; ISO 5457: 20/10 мм с зонами) + штамп в правом нижнем углу + схема в свободном поле
 function sheetCanvas(sch, stImg, first){
   const dpmm=8, W=297*dpmm, H=210*dpmm, cv=document.createElement('canvas'); cv.width=W; cv.height=H;
   const x=cv.getContext('2d'); x.fillStyle='#fff'; x.fillRect(0,0,W,H);
-  const fx=20*dpmm, fy=5*dpmm, fw=W-25*dpmm, fh=H-10*dpmm;
-  x.strokeStyle='#000'; x.lineWidth=0.5*dpmm; x.strokeRect(fx,fy,fw,fh);
-  const sw=185*dpmm, sh=(first?(S.stamp.full?55:30):15)*dpmm, sx=fx+fw-sw, sy=fy+fh-sh;
+  let fx=20*dpmm, fy=5*dpmm, fw=W-25*dpmm, fh=H-10*dpmm;
+  if(ISO()) ({fx,fy,fw,fh}=isoFrame(x,dpmm,W,H));
+  else { x.strokeStyle='#000'; x.lineWidth=0.5*dpmm; x.strokeRect(fx,fy,fw,fh); }
+  const sw=(ISO()?ISO_SW:185)*dpmm, sh=(ISO()?ISO_SH:first?(S.stamp.full?55:30):15)*dpmm, sx=fx+fw-sw, sy=fy+fh-sh;
   if(stImg) x.drawImage(stImg,sx,sy,sw,sh);
   const aw=fw-10*dpmm, ah=fh-sh-10*dpmm, k=Math.min(aw/sch.width, ah/sch.height, 1);
   x.drawImage(sch, fx+5*dpmm+(aw-sch.width*k)/2, fy+5*dpmm+(ah-sch.height*k)/2, sch.width*k, sch.height*k);
@@ -1532,64 +1652,64 @@ async function offer(name, blob, previewCanvas){
   if(previewCanvas){ im.src=previewCanvas.toDataURL('image/jpeg',0.85); im.hidden=false; } else im.hidden=true;
   document.getElementById('io-perm').hidden=true;
   // открыт с компьютера (не на claude.ai): обычное скачивание браузером, без посредника
-  if(!inClaude()){ nativeSave(name, blob); msg('Сохранено: '+name+' — в папку загрузок браузера'); return true; }
+  if(!inClaude()){ nativeSave(name, blob); msg(L('Сохранено: ','Saved: ')+name+L(' — в папку загрузок браузера',' — to the browser downloads folder')); return true; }
   let d=await getDL();
   if(!d){
     const {s}=await permState();
     retrySave=()=>offer(name, blob, previewCanvas);
     if(s==='prompt'||s==='granted'){ dl=null; d=await getDL(); }
     if(!d){
-      const tail=previewCanvas?' Пока можно сохранить картинку ниже правой кнопкой или долгим нажатием.':' Текст в поле можно скопировать кнопкой «Копировать».';
-      if(s==='denied'){ msg('Сохранение файлов для этой страницы выключено. Нажми «Разрешить сохранение файлов».'+tail); document.getElementById('io-perm').hidden=false; }
-      else { let all='—'; try{ const p=await window.claude?.use?.('permissions'); if(p) all=JSON.stringify(await p.state()); }catch(e){ all='ошибка'; }
-        msg(`Приложение не дало странице сохранить файл.${tail} Проверь меню «Разрешения» у схемы: «Загрузки» должны быть включены, потом обнови страницу. [диагностика: claude=${!!window.claude}, загрузки=${s}, все=${all}]`); }
+      const tail=previewCanvas?L(' Пока можно сохранить картинку ниже правой кнопкой или долгим нажатием.',' Meanwhile you can save the image below with right-click or a long press.'):L(' Текст в поле можно скопировать кнопкой «Копировать».',' The text in the field can be copied with “Copy”.');
+      if(s==='denied'){ msg(L('Сохранение файлов для этой страницы выключено. Нажми «Разрешить сохранение файлов».','Saving files is turned off for this page. Press “Allow saving files”.')+tail); document.getElementById('io-perm').hidden=false; }
+      else { let all='—'; try{ const p=await window.claude?.use?.('permissions'); if(p) all=JSON.stringify(await p.state()); }catch(e){ all=L('ошибка','error'); }
+        msg(L(`Приложение не дало странице сохранить файл.${tail} Проверь меню «Разрешения» у схемы: «Загрузки» должны быть включены, потом обнови страницу.`,`The app did not let the page save a file.${tail} Check the “Permissions” menu of the page: “Downloads” must be on, then reload the page.`)+` [diag: claude=${!!window.claude}, downloads=${s}, all=${all}]`); }
       return false; }
   }
-  try{ await d.save({filename:name, data:blob}); msg('Сохранено: '+name); return true; }
+  try{ await d.save({filename:name, data:blob}); msg(L('Сохранено: ','Saved: ')+name); return true; }
   catch(e){ const code=(e&&e.code)||'unknown';
-    if(code==='declined') msg('Сохранение отменено');
-    else if(code==='rate_limited') msg('Окно сохранения уже открыто — подтверди или закрой его');
+    if(code==='declined') msg(L('Сохранение отменено','Saving cancelled'));
+    else if(code==='rate_limited') msg(L('Окно сохранения уже открыто — подтверди или закрой его','A save dialog is already open — confirm or close it'));
     else if((code==='extension_not_enabled'||code==='rejected_extension')&&/\.pdf$/.test(name)){
-      msg('Здесь сохранение PDF выключено. Можно сохранить каждый лист A4 с рамкой и штампом как JPG — кнопка ниже.');
+      msg(L('Здесь сохранение PDF выключено. Можно сохранить каждый лист A4 с рамкой и штампом как JPG — кнопка ниже.','Saving PDF is off here. You can save each A4 sheet with frame and title block as JPG — button below.'));
       document.getElementById('io-a4jpg').hidden=false; }
-    else msg(`Не удалось сохранить файл (${code}). Картинка ниже — её можно сохранить вручную.`);
+    else msg(L(`Не удалось сохранить файл (${code}). Картинка ниже — её можно сохранить вручную.`,`Could not save the file (${code}). The image below can be saved manually.`));
     return false; }
 }
 const fname=(ext,base='skhema')=>base+'-'+new Date().toISOString().slice(0,10)+'.'+ext;
 document.getElementById('io-jpg').onclick=async()=>{
-  if(!curComps().length){ msg('На этом листе пусто'); return; }
-  msg('Готовлю JPG текущего листа…');
+  if(!curComps().length){ msg(L('На этом листе пусто','This sheet is empty')); return; }
+  msg(L('Готовлю JPG текущего листа…','Preparing JPG of the current sheet…'));
   try{ const cv=await rasterize(3), blob=await toBlob(cv,'image/jpeg',0.92);
-    if(!blob) throw new Error('браузер не смог сохранить лист в картинку');
+    if(!blob) throw new Error(L('браузер не смог сохранить лист в картинку','the browser could not save the sheet as an image'));
     await offer(fname('jpg','skhema-l'+sheetNo(S.cur)), blob, cv); }
-  catch(e){ msg('Ошибка экспорта JPG: '+(e&&e.message||e)); }
+  catch(e){ msg(L('Ошибка экспорта JPG: ','JPG export error: ')+(e&&e.message||e)); }
 };
 // PDF — все листы проекта по порядку, у каждого свой штамп с номером листа
 document.getElementById('io-pdf').onclick=async()=>{
-  if(!S.comps.length){ msg('Схема пустая'); return; }
-  if(!window.jspdf){ msg('Библиотека PDF не загрузилась. Проверь сеть и обнови страницу.'); return; }
+  if(!S.comps.length){ msg(L('Схема пустая','The diagram is empty')); return; }
+  if(!window.jspdf){ msg(L('Библиотека PDF не загрузилась. Проверь сеть и обнови страницу.','The PDF library did not load. Check the network and reload the page.')); return; }
   const framed=document.getElementById('io-frame').checked, keep=S.cur, keepSel=sel, pages=[];
-  let step='подготовка';
+  let step=L('подготовка','preparing');
   try{
     sel=null;
     try{
-      for(const sh of S.sheets){ step=`лист ${pages.length+1}: схема`; msg(`Готовлю PDF: лист ${pages.length+1} из ${S.sheets.length}…`);
+      for(const sh of S.sheets){ step=L(`лист ${pages.length+1}: схема`,`sheet ${pages.length+1}: drawing`); msg(L(`Готовлю PDF: лист ${pages.length+1} из ${S.sheets.length}…`,`Preparing PDF: sheet ${pages.length+1} of ${S.sheets.length}…`));
         S.cur=sh.id; ROUTES=S.route==='simple'?null:routeAll(); pages.push({sch:await rasterize(4), sheet:sh}); }
     } finally { S.cur=keep; sel=keepSel; render(); }
     // листы кладём в PDF как JPEG: PNG в jsPDF раздувает файл до десятков мегабайт
     const pdf=new window.jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4',compress:true});
     let first=null, noStamp=false; lastPages=pages;
     for(let i=0;i<pages.length;i++){ const p=pages[i]; if(i) pdf.addPage('a4','landscape'); let cv;
-      if(framed){ step=`лист ${i+1}: штамп`;
+      if(framed){ step=L(`лист ${i+1}: штамп`,`sheet ${i+1}: title block`);
         let st=null; try{ st=await stampImage(p.sheet,i+1,pages.length); }catch(e){ noStamp=true; }
-        step=`лист ${i+1}: страница`; cv=sheetCanvas(p.sch, st, i===0); pdf.addImage(jpegURL(cv),'JPEG',0,0,297,210,undefined,'FAST'); }
-      else { step=`лист ${i+1}: страница`; cv=p.sch; const k=Math.min(277/cv.width,190/cv.height), w=cv.width*k, h=cv.height*k;
+        step=L(`лист ${i+1}: страница`,`sheet ${i+1}: page`); cv=sheetCanvas(p.sch, st, i===0); pdf.addImage(jpegURL(cv),'JPEG',0,0,297,210,undefined,'FAST'); }
+      else { step=L(`лист ${i+1}: страница`,`sheet ${i+1}: page`); cv=p.sch; const k=Math.min(277/cv.width,190/cv.height), w=cv.width*k, h=cv.height*k;
         pdf.addImage(jpegURL(cv),'JPEG',(297-w)/2,(210-h)/2,w,h,undefined,'FAST'); }
       if(!i) first=cv; }
-    step='сохранение';
+    step=L('сохранение','saving');
     const ok=await offer(fname('pdf'), pdf.output('blob'), first);
-    if(ok&&noStamp) msg('PDF сохранён, но штамп не отрисовался — проверь поля во вкладке «0 · Штамп»');
-  } catch(e){ msg(`Ошибка экспорта PDF (${step}): ${e&&e.message||e}`); }
+    if(ok&&noStamp) msg(L('PDF сохранён, но штамп не отрисовался — проверь поля во вкладке «0 · Штамп»','PDF saved, but the title block did not render — check the fields in the “0 · Title block” tab'));
+  } catch(e){ msg(L(`Ошибка экспорта PDF (${step}): `,`PDF export error (${step}): `)+(e&&e.message||e)); }
 };
 // ——— печатный вид: лист A4 (рамка + штамп) во всё окно, печать браузером ———
 let pvPages=[], pvI=0;
@@ -1602,34 +1722,34 @@ async function pageCanvas(i){   // i — индекс листа
 }
 async function pvShow(i){
   pvI=Math.max(0,Math.min(S.sheets.length-1,i));
-  document.getElementById('pv-n').textContent=`Лист ${pvI+1} из ${S.sheets.length}`;
+  document.getElementById('pv-n').textContent=L(`Лист ${pvI+1} из ${S.sheets.length}`,`Sheet ${pvI+1} of ${S.sheets.length}`);
   document.getElementById('pv-prev').disabled=pvI===0; document.getElementById('pv-next').disabled=pvI===S.sheets.length-1;
   if(!pvPages[pvI]) pvPages[pvI]=(await pageCanvas(pvI)).toDataURL('image/png');
   document.getElementById('pv-img').src=pvPages[pvI];
 }
 document.getElementById('io-print').onclick=async()=>{
-  if(!S.comps.length){ msg('Схема пустая'); return; }
-  msg('Готовлю печатный вид…');
+  if(!S.comps.length){ msg(L('Схема пустая','The diagram is empty')); return; }
+  msg(L('Готовлю печатный вид…','Preparing print view…'));
   const local=!inClaude();   // с компьютера окно печати доступно — печатаем все листы разом
   document.getElementById('pv-print').hidden=!local;
   document.getElementById('pv-hint').innerHTML = local
-    ? 'Нажми «Печать всех листов» → «Сохранить как PDF». Ориентация альбомная, поля — нет, колонтитулы — выкл.'
-    : 'Нажми <kbd>Ctrl+P</kbd> (на Mac <kbd>⌘P</kbd>) → «Сохранить как PDF», ориентация альбомная, поля — нет. Печатается один лист — тот, что на экране.';
+    ? L('Нажми «Печать всех листов» → «Сохранить как PDF». Ориентация альбомная, поля — нет, колонтитулы — выкл.','Press “Print all sheets” → “Save as PDF”. Landscape, margins — none, headers and footers — off.')
+    : L('Нажми <kbd>Ctrl+P</kbd> (на Mac <kbd>⌘P</kbd>) → «Сохранить как PDF», ориентация альбомная, поля — нет. Печатается один лист — тот, что на экране.','Press <kbd>Ctrl+P</kbd> (on Mac <kbd>⌘P</kbd>) → “Save as PDF”, landscape, margins — none. One sheet is printed — the one on screen.');
   try{ pvPages=[]; io.hidden=true; document.getElementById('pview').hidden=false;
     await pvShow(view==='sheet'?sheetNo(S.cur)-1:0); msg(''); }
-  catch(e){ document.getElementById('pview').hidden=true; io.hidden=false; msg('Ошибка печатного вида: '+(e&&e.message||e)); }
+  catch(e){ document.getElementById('pview').hidden=true; io.hidden=false; msg(L('Ошибка печатного вида: ','Print view error: ')+(e&&e.message||e)); }
 };
 document.getElementById('pv-prev').onclick=()=>pvShow(pvI-1);
 document.getElementById('pv-next').onclick=()=>pvShow(pvI+1);
 document.getElementById('pv-print').onclick=async()=>{
-  const btn=document.getElementById('pv-print'); btn.disabled=true; btn.textContent='Готовлю листы…';
+  const btn=document.getElementById('pv-print'); btn.disabled=true; btn.textContent=L('Готовлю листы…','Preparing sheets…');
   try{
     for(let i=0;i<S.sheets.length;i++) if(!pvPages[i]) pvPages[i]=(await pageCanvas(i)).toDataURL('image/png');
     const pall=document.getElementById('pall');
-    pall.innerHTML=pvPages.map((u,i)=>`<img src="${u}" alt="Лист ${i+1}">`).join('');
+    pall.innerHTML=pvPages.map((u,i)=>`<img src="${u}" alt="${L('Лист','Sheet')} ${i+1}">`).join('');
     await Promise.all([...pall.querySelectorAll('img')].map(im=>im.decode().catch(()=>{})));
     document.body.classList.add('printall'); window.print();
-  } finally { btn.disabled=false; btn.textContent='🖨 Печать всех листов'; }
+  } finally { btn.disabled=false; btn.textContent=L('🖨 Печать всех листов','🖨 Print all sheets'); }
 };
 window.addEventListener('afterprint',()=>document.body.classList.remove('printall'));
 document.getElementById('pv-close').onclick=()=>{ document.getElementById('pview').hidden=true; };
@@ -1641,58 +1761,58 @@ document.addEventListener('keydown',e=>{ if(document.getElementById('pview').hid
 document.getElementById('io-perm').onclick=async()=>{
   const {p}=await permState();
   try{ if(!p) throw 0; await p.manage(); }
-  catch(e){ msg('Не получилось открыть настройки. Включи «Загрузки» в меню «Разрешения» у этой схемы (вверху окна) и нажми экспорт ещё раз.'); return; }
+  catch(e){ msg(L('Не получилось открыть настройки. Включи «Загрузки» в меню «Разрешения» у этой схемы (вверху окна) и нажми экспорт ещё раз.','Could not open the settings. Turn on “Downloads” in the “Permissions” menu of this page (top of the window) and press export again.')); return; }
   const {s}=await permState();
   if(s==='granted'||s==='prompt'){ dl=null; document.getElementById('io-perm').hidden=true; if(retrySave) await retrySave(); }
-  else msg('Сохранение всё ещё выключено. Его можно включить в меню «Разрешения» у этой схемы.');
+  else msg(L('Сохранение всё ещё выключено. Его можно включить в меню «Разрешения» у этой схемы.','Saving is still off. It can be turned on in the “Permissions” menu of this page.'));
 };
 // запасной вариант: каждый лист A4 (рамка + штамп) отдельным JPG, по очереди
 document.getElementById('io-a4jpg').onclick=async()=>{
-  const pages=lastPages; if(!pages||!pages.length){ msg('Сначала нажми «⬇ PDF»'); return; }
+  const pages=lastPages; if(!pages||!pages.length){ msg(L('Сначала нажми «⬇ PDF»','Press “⬇ PDF” first')); return; }
   try{
     for(let i=0;i<pages.length;i++){
       let st=null; try{ st=await stampImage(pages[i].sheet,i+1,pages.length); }catch(e){}
       const cv=sheetCanvas(pages[i].sch, st, i===0);
-      msg(`Лист ${i+1} из ${pages.length}…`);
+      msg(L(`Лист ${i+1} из ${pages.length}…`,`Sheet ${i+1} of ${pages.length}…`));
       const ok=await offer(fname('jpg',`skhema-A4-l${i+1}`), await toBlob(cv,'image/jpeg',0.92), cv);
       if(!ok) return;
     }
-    msg(`Сохранено листов: ${pages.length}`);
-  } catch(e){ msg('Ошибка экспорта: '+(e&&e.message||e)); }
+    msg(L(`Сохранено листов: ${pages.length}`,`Sheets saved: ${pages.length}`));
+  } catch(e){ msg(L('Ошибка экспорта: ','Export error: ')+(e&&e.message||e)); }
 };
-document.getElementById('io-sample').onclick=()=>{ push(); sample(); sel=null; view='sheet'; fileName=''; fileHandle=null; render(); fit(); save(); msg('Загружен пример. Отменить можно через «Отменить»'); };
+document.getElementById('io-sample').onclick=()=>{ push(); sample(); sel=null; view='sheet'; fileName=''; fileHandle=null; render(); fit(); save(); msg(L('Загружен пример. Отменить можно через «Отменить»','Sample loaded. Undo brings the old diagram back')); };
 // ——— проект в файле: сохранить / открыть ———
 // С компьютера в Chrome/Edge — как в обычной программе: «Сохранить» пишет в тот же файл, Shift — «Сохранить как».
 // Иначе (Firefox, Safari, внутри claude.ai) — файл скачивается.
 const projName=()=>((S.stamp&&(S.stamp.code||S.stamp.title))||'skhema').trim().replace(/[\\/:*?"<>|]+/g,'_').replace(/\s+/g,'_')||'skhema';
-const FTYPES=[{description:'Проект Схемника', accept:{'application/json':['.json']}}];
+const FTYPES=()=>[{description:L('Проект Схемника','Shemnik project'), accept:{'application/json':['.json']}}];
 async function saveProject(as){
   const text=JSON.stringify(S,null,1), name=fileName||projName()+'.shema.json';
-  const done=n=>{ fileName=n; dirty=false; save(); toast('Сохранено: '+n); };
+  const done=n=>{ fileName=n; dirty=false; save(); toast(L('Сохранено: ','Saved: ')+n); };
   if(!inClaude()&&window.showSaveFilePicker){
     try{
-      if(!fileHandle||as) fileHandle=await window.showSaveFilePicker({suggestedName:name, types:FTYPES});
+      if(!fileHandle||as) fileHandle=await window.showSaveFilePicker({suggestedName:name, types:FTYPES()});
       const w=await fileHandle.createWritable(); await w.write(text); await w.close(); done(fileHandle.name); return;
     }catch(e){ if(e&&e.name==='AbortError') return; fileHandle=null; }   // нет доступа к файлу — просто скачаем
   }
   if(!inClaude()){ nativeSave(name,new Blob([text],{type:'application/json'})); done(name); return; }
   const d=await getDL();
-  if(!d){ toast('Здесь сохранить файл нельзя. «⬇ Экспорт» → JSON → «Копировать»'); return; }
+  if(!d){ toast(L('Здесь сохранить файл нельзя. «⬇ Экспорт» → JSON → «Копировать»','Files cannot be saved here. “⇄ JSON…” → JSON → “Copy”')); return; }
   try{ await d.save({filename:name, data:text}); done(name); }
-  catch(e){ toast(e&&e.code==='declined'?'Сохранение отменено':'Не удалось сохранить ('+((e&&e.code)||'ошибка')+')'); }
+  catch(e){ toast(e&&e.code==='declined'?L('Сохранение отменено','Saving cancelled'):L('Не удалось сохранить (','Could not save (')+((e&&e.code)||L('ошибка','error'))+')'); }
 }
 function loadProjectText(text, name){
   let d;
   try{ d=JSON.parse(text); if(!Array.isArray(d.comps)||!Array.isArray(d.wires)) throw 0; d.comps.forEach(c=>{ if(!T[c.type]) throw 0; }); }
-  catch(e){ toast('Это не файл проекта Схемника: в нём нет схемы'); return false; }
+  catch(e){ toast(L('Это не файл проекта Схемника: в нём нет схемы','This is not a Shemnik project file: no diagram in it')); return false; }
   push(); S=migrate(d); view='sheet'; sel=null; pending=null; stampOpen=false;
   for(const k in vbs) delete vbs[k];
   fileName=name; dirty=false; render(); fit(); save();
-  toast(`Открыт ${name}. Вернуть прежний проект — «Отменить»`); return true;
+  toast(L(`Открыт ${name}. Вернуть прежний проект — «Отменить»`,`Opened ${name}. Undo brings the previous project back`)); return true;
 }
 async function openProject(){
   if(!inClaude()&&window.showOpenFilePicker){
-    try{ const [h]=await window.showOpenFilePicker({types:FTYPES}); const f=await h.getFile();
+    try{ const [h]=await window.showOpenFilePicker({types:FTYPES()}); const f=await h.getFile();
       if(loadProjectText(await f.text(), f.name)) fileHandle=h; return; }
     catch(e){ if(e&&e.name==='AbortError') return; }
   }
@@ -1720,22 +1840,22 @@ function newProject(){
   push(); S=blank(); sel=null; pending=null; view='sheet'; stampOpen=false;
   for(const k in vbs) delete vbs[k];
   fileName=''; fileHandle=null; dirty=false; render(); fit(); save();
-  toast('Новая схема. Вернуть прежнюю — «Отменить»');
+  toast(L('Новая схема. Вернуть прежнюю — «Отменить»','New diagram. Undo brings the previous one back'));
 }
 document.getElementById('b-new').onclick=()=>{
   const b=document.getElementById('b-new');
   if(dirty&&S.comps.length&&Date.now()-newArm>4000){
-    newArm=Date.now(); b.textContent='⚠ Точно новая?';
-    toast('Есть несохранённые изменения. Нажми ещё раз — начнётся новая схема (старую вернёт «Отменить»), или сначала Ctrl+S');
-    setTimeout(()=>{ b.textContent='📄 Новая схема'; },4000); return; }
-  newArm=0; b.textContent='📄 Новая схема'; closeFile(); newProject();
+    newArm=Date.now(); b.textContent=L('⚠ Точно новая?','⚠ Really new?');
+    toast(L('Есть несохранённые изменения. Нажми ещё раз — начнётся новая схема (старую вернёт «Отменить»), или сначала Ctrl+S','There are unsaved changes. Press again for a new diagram (Undo brings the old one back), or Ctrl+S first'));
+    setTimeout(()=>{ b.textContent=L('📄 Новая схема','📄 New diagram'); },4000); return; }
+  newArm=0; b.textContent=L('📄 Новая схема','📄 New diagram'); closeFile(); newProject();
 };
 // ——— порядок листов ———
 function moveSheet(id, to){
   const from=S.sheets.findIndex(s=>s.id===id); if(from<0) return;
   to=Math.max(0,Math.min(S.sheets.length-1,to)); if(to===from) return;
   push(); const [s]=S.sheets.splice(from,1); S.sheets.splice(to,0,s); render(); save();
-  toast(`«${s.name}» теперь лист ${to+1}`);
+  toast(L(`«${s.name}» теперь лист ${to+1}`,`“${s.name}” is now sheet ${to+1}`));
 }
 let dragSheet=null;
 const tabsEl=document.getElementById('tabs');
@@ -1756,6 +1876,39 @@ document.getElementById('b-save').onclick=e=>saveProject(e.shiftKey);
 document.addEventListener('dragover',e=>{ if([...(e.dataTransfer?.types||[])].includes('Files')) e.preventDefault(); });
 document.addEventListener('drop',async e=>{ const f=e.dataTransfer?.files?.[0]; if(!f) return; e.preventDefault();
   if(loadProjectText(await f.text(), f.name)) fileHandle=null; });
+// ——— перевод статической разметки: текст узлов и подсказки; русский оригинал запоминается, чтобы переключаться туда-обратно ———
+const STATIC_EN={'Схемник':'Shemnik','☰ Файл ▾':'☰ File ▾','📄 Новая схема':'📄 New diagram','📂 Открыть…':'📂 Open…','💾 Сохранить':'💾 Save',
+  '💾 Сохранить как…':'💾 Save as…','🖨 Печатный вид':'🖨 Print view','все листы':'all sheets','текущий лист':'current sheet',
+  '⬇ Перечень элементов':'⬇ Parts list','⬇ Теги PLC для TIA':'⬇ PLC tags for TIA','⇄ JSON, импорт, пример…':'⇄ JSON, import, sample…',
+  '⟳ Повернуть':'⟳ Rotate','✕ Удалить':'✕ Delete','↶ Отменить':'↶ Undo','▦ Перечень':'▦ Parts list','⤢ Вся схема':'⤢ Fit all',
+  'ЛКМ по пустому — рамка выделения · ПКМ или колесо зажатым — двигать чертёж · колесо — масштаб · от вывода к выводу — провод':'Left-drag on empty — selection box · right button or held wheel — pan · wheel — zoom · pin to pin — wire',
+  'Экспорт / импорт':'Export / import','Перечень CSV':'Parts list CSV','Теги PLC (TIA)':'PLC tags (TIA)','Копировать':'Copy',
+  'Загрузить JSON из поля':'Load JSON from field','Новая схема':'New diagram','Пример':'Sample','Закрыть':'Close',
+  'Разрешить сохранение файлов':'Allow saving files','⬇ Листы A4 в JPG':'⬇ A4 sheets as JPG','рамка и штамп в PDF':'frame and title block in PDF',
+  '· PDF: все листы, JPG и SVG: текущий лист':'· PDF: all sheets, JPG and SVG: current sheet','Электрические цепи':'Electrical nets','Трубопроводы':'Piping',
+  'Входы/выходы PLC · весь проект':'PLC I/O · whole project','🖨 Печать всех листов':'🖨 Print all sheets','✕ Закрыть':'✕ Close',
+  'Начать новую пустую схему':'Start a new empty diagram','Можно и просто перетащить файл проекта в окно':'You can also drop a project file onto the window',
+  'Файл проекта':'Project file','Повернуть (R)':'Rotate (R)','Удалить (Del)':'Delete (Del)','Отменить (Ctrl+Z)':'Undo (Ctrl+Z)',
+  'Показать или скрыть перечень элементов на листе':'Show or hide the parts list on the sheet','Переключить: автотрассировка с обходом элементов или простой уголок':'Toggle: auto-routing around items or a simple L-shape',
+  'Показать всё':'Fit everything','Листы проекта':'Project sheets','Экспорт и импорт':'Export and import','Предыдущий лист':'Previous sheet','Следующий лист':'Next sheet',
+  'Схема для сохранения':'Diagram to save','Лист A4 для печати':'A4 sheet for printing'};
+const STATIC_NODES=[];
+{ const tw=document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for(let n=tw.nextNode(); n; n=tw.nextNode()){ const t=n.nodeValue.trim(); if(STATIC_EN[t]) STATIC_NODES.push([n,null,n.nodeValue]); }
+  document.querySelectorAll('[title],[aria-label],[alt]').forEach(el=>['title','aria-label','alt'].forEach(a=>{ const v=el.getAttribute(a); if(v&&STATIC_EN[v]) STATIC_NODES.push([el,a,v]); })); }
+function applyStatic(){
+  STATIC_NODES.forEach(([n,a,ru])=>{ const t=EN()?(a?STATIC_EN[ru]:ru.replace(ru.trim(),STATIC_EN[ru.trim()])):ru; if(a) n.setAttribute(a,t); else n.nodeValue=t; });
+  document.documentElement.lang=LANG; document.title=L('Схемник','Shemnik'); }
+// переключатель: язык интерфейса (запоминается в браузере) и стандарт оформления проекта — вместе
+document.getElementById('b-lang').onclick=()=>{
+  LANG=EN()?'ru':'en'; try{ localStorage.setItem('shemnik-lang',LANG); }catch(e){}
+  const std=EN()?'iso':'gost'; if(S.std!==std){ push(); S.std=std; save(); }
+  applyLangT(); applyStatic(); buildPalette(); updFile();
+  document.getElementById('b-new').textContent=L('📄 Новая схема','📄 New diagram');
+  render();
+  toast(EN()?'English · ISO 5457 frame, ISO 7200 title block':'Русский · оформление по ГОСТ 2.104');
+};
+applyStatic();
 try{ const d=JSON.parse(localStorage.getItem('shemnik')||'null'); if(d&&d.comps&&d.comps.length) S=migrate(d); else sample(); }catch(e){ sample(); }
 render(); updFile(); requestAnimationFrame(fit);
 </script>
