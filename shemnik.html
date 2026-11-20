@@ -499,6 +499,32 @@ function applyLangT(){
     t.d=ru.d.replace('>мА<','>mA<'); });
   tpCache=new WeakMap();
 }
+// ——— буквенные коды по IEC 81346-2 (режим ISO); у флажков, земли, рамок — как было ———
+const IEC={R:'RA', VD:'RA', C:'CA', HL:'PF', HLL:'PF', QF:'QA', QS:'QB', XT:'XD', XTM:'XD', TV:'TA', G:'TB', M1:'MA', M3:'MA',
+  SBO:'SF', SBC:'SF', SA:'SF', GB:'GB', KNO:'KF', KNC:'KF', K:'KF', KM:'KF', KA:'KF', PLC:'KF', SM:'KF', BAR:'TF',
+  YV:'QM', YVH:'QM', YVE:'QM', YVP:'QM', BV:'QM', VP:'QM', FW:'HQ', KR:'QN', RD:'QN', RDE:'QN',
+  SP:'BP', SPH:'BP', SPE:'BP', BP:'BP', BPH:'BP', BPP:'BP', BFP:'BF', BFE:'BF'};
+const prefixOf=(type,std)=>std==='iso'?(IEC[type]||T[type].pre):T[type].pre;
+// на чертеже и в перечне по IEC 81346 перед обозначением изделия ставится «-»
+const dref=r=>ISO()&&r?'-'+r:r;
+// Переименование обозначений при смене стандарта: устройство (все элементы с одним обозначением) получает префикс
+// по своему главному представлению. Свободные обозначения (свои, не «префикс+номер» этого стандарта) не трогаем.
+// Номер сохраняется, если префикс не меняется; остальные получают свободные номера по порядку прежних обозначений.
+function convertRefs(to){
+  const from=to==='iso'?'gost':'iso', groups=new Map();
+  S.comps.forEach(c=>{ if(!c.ref) return; if(!groups.has(c.ref)) groups.set(c.ref,[]); groups.get(c.ref).push(c); });
+  const plan=[], taken=new Set();
+  groups.forEach((cs,ref)=>{ const m=/^([A-Za-zА-Яа-яЁё]+)(\d+)$/.exec(ref);
+    const main=cs.reduce((a,b)=>(T[b.type].prio??1)>(T[a.type].prio??1)?b:a);
+    if(!m||m[1]!==prefixOf(main.type,from)){ taken.add(ref); return; }
+    plan.push({cs, ref, p:m[1], n:+m[2], tp:prefixOf(main.type,to)}); });
+  plan.filter(e=>e.p===e.tp).forEach(e=>{ if(!taken.has(e.ref)){ e.nr=e.ref; taken.add(e.ref); } });
+  plan.filter(e=>!e.nr).sort((a,b)=>a.p.localeCompare(b.p)||a.n-b.n).forEach(e=>{
+    let k=1; while(taken.has(e.tp+k)) k++; e.nr=e.tp+k; taken.add(e.nr); });
+  let changed=0; plan.forEach(e=>{ if(e.nr!==e.ref){ changed++; e.cs.forEach(c=>{ c.ref=e.nr; }); } });
+  return changed;
+}
+function setStd(std){ if(S.std===std) return 0; push(); S.std=std; const k=convertRefs(std); save(); return k; }
 // внутренние имена выводов (ключи проводов) остаются, на чертеже — по-английски
 const PINEN={'вх':'in','вых':'out','0В':'0V'};
 const pinTxt=p=>(EN()&&PINEN[p])||p;
@@ -818,7 +844,7 @@ function compSVG(c, forExport){
   const conn = new Set(); S.wires.forEach(w=>{conn.add(w.a.join(':'));conn.add(w.b.join(':'));});
   let lbl='';
   const vert = c.rot%180!==0;
-  const lines = t.noLabel?[]: t.onlyVal?[[c.val,'']]: c.type==='XT'?[[c.ref+':'+xtNo(c),'']]:[[c.ref,''],[c.val,'v']];
+  const lines = t.noLabel?[]: t.onlyVal?[[c.val,'']]: c.type==='XT'?[[dref(c.ref)+':'+xtNo(c),'']]:[[dref(c.ref),''],[c.val,'v']];
   lines.forEach(([txt,cls],i)=>{ if(!txt) return;
     let x,y,anc;
     if(c.type==='VCC'){ [x,y]=vert?[-18,4]:[0,-12]; anc=vert?'end':'middle'; }
@@ -877,8 +903,11 @@ function wireSVG(w, forExport){
 // ——— перечень элементов (ГОСТ 2.701): одинаковые элементы с подряд идущими номерами сводятся в одну строку
 const BOM_SKIP=new Set(['GND','VCC','HIN','HOUT','EIN','EOUT','PIN','POUT','NOTE','RECT']);
 const EFLAG=new Set(['EIN','EOUT']);
-const COLS=[[90,'Поз. обозн.','Ref. des.'],[270,'Наименование','Description'],[44,'Кол.','Qty'],[130,'Примечание','Remarks']];
-const BW=COLS.reduce((s,c)=>s+c[0],0), BT=26, BH=24, BR=20;
+const COLS_G=[[90,'Поз. обозн.','Ref. des.','pos'],[270,'Наименование','Description','name'],[44,'Кол.','Qty','qty',1],[130,'Примечание','Remarks','note']];
+// ISO 7573: номер позиции, количество, наименование, обозначение, примечание
+const COLS_I=[[44,'Поз.','Item','item',1],[44,'Кол.','Qty','qty',1],[270,'Наименование','Description','name'],[124,'Обозначение','Ref. designation','pos'],[130,'Примечание','Remarks','note']];
+const COLS=()=>ISO()?COLS_I:COLS_G, BT=26, BH=24, BR=20;
+const BWd=()=>COLS().reduce((s,c)=>s+c[0],0);
 function bomRows(){
   const parse=r=>{ const m=/^(.*?)(\d+)$/.exec(r||''); return m?[m[1],+m[2]]:[r||'',0]; };
   // одно обозначение = одно устройство, сколько бы листов его ни показывали; имя берём у главного представления
@@ -893,32 +922,34 @@ function bomRows(){
   for(const it of list){ const l=rows[rows.length-1];
     if(l&&it.n>0&&l.p===it.p&&l.name===it.name&&l.note===it.note&&it.n===l.last+1){ l.last=it.n; l.refs.push(it.ref); }
     else rows.push({p:it.p, last:it.n, name:it.name, note:it.note, refs:[it.ref]}); }
-  return rows.map(r=>({ pos: r.refs.length<3 ? r.refs.join(', ') : r.refs[0]+'…'+r.refs[r.refs.length-1],
-    name:r.name, qty:r.refs.length, note:r.note }));
+  return rows.map((r,i)=>{ const rf=r.refs.map(dref); return { item:i+1, pos: rf.length<3 ? rf.join(', ') : rf[0]+'…'+rf[rf.length-1],
+    name:r.name, qty:r.refs.length, note:r.note }; });
 }
 function bomGeom(){
   if(!S.bom||!S.bom.show||(S.bom.sheet||S.sheets[0].id)!==S.cur) return null;
-  const rows=bomRows(); return {x:S.bom.x, y:S.bom.y, w:BW, h:BT+BH+Math.max(rows.length,1)*BR, rows};
+  const rows=bomRows(); return {x:S.bom.x, y:S.bom.y, w:BWd(), h:BT+BH+Math.max(rows.length,1)*BR, rows};
 }
 function bomSVG(){
   const g=bomGeom(); if(!g) return '';
   let s=`<g class="bomg" data-bom="1" transform="translate(${g.x} ${g.y})"><rect class="bg" width="${g.w}" height="${g.h}"/>`;
-  s+=`<text class="lbl bth" x="${g.w/2}" y="${BT-9}" text-anchor="middle" style="font-size:13px">${L('Перечень элементов','Parts list')}</text>`;
+  s+=`<text class="lbl bth" x="${g.w/2}" y="${BT-9}" text-anchor="middle" style="font-size:13px">${ISO()?L('Перечень элементов · ISO 7573','Parts list · ISO 7573'):L('Перечень элементов','Parts list')}</text>`;
   s+=`<rect class="bt o" x="0" y="${BT}" width="${g.w}" height="${g.h-BT}"/><line class="bt o" x1="0" y1="${BT+BH}" x2="${g.w}" y2="${BT+BH}"/>`;
   let cx=0;
-  COLS.forEach(([w,hr,he],i)=>{ const h=L(hr,he); s+=`<text class="lbl bth" x="${cx+w/2}" y="${BT+16}" text-anchor="middle">${h}</text>`; cx+=w;
-    if(i<COLS.length-1) s+=`<line class="bt o" x1="${cx}" y1="${BT}" x2="${cx}" y2="${g.h}"/>`; });
-  const rows=g.rows.length?g.rows:[{pos:'',name:L('Нет элементов','No items'),qty:'',note:''}];
+  const cols=COLS();
+  cols.forEach(([w,hr,he],i)=>{ const h=L(hr,he); s+=`<text class="lbl bth" x="${cx+w/2}" y="${BT+16}" text-anchor="middle">${h}</text>`; cx+=w;
+    if(i<cols.length-1) s+=`<line class="bt o" x1="${cx}" y1="${BT}" x2="${cx}" y2="${g.h}"/>`; });
+  const rows=g.rows.length?g.rows:[{item:'',pos:'',name:L('Нет элементов','No items'),qty:'',note:''}];
   rows.forEach((r,i)=>{ const y=BT+BH+i*BR;
     if(i) s+=`<line class="bt" x1="0" y1="${y}" x2="${g.w}" y2="${y}"/>`;
     let cx=0;
-    [r.pos,r.name,r.qty,r.note].forEach((t,j)=>{ const w=COLS[j][0], max=Math.floor((w-10)/7.3);
-      let txt=String(t); if(txt.length>max) txt=txt.slice(0,max-1)+'…';
-      s+=`<text class="lbl" x="${j===2?cx+w/2:cx+5}" y="${y+14}" text-anchor="${j===2?'middle':'start'}">${esc(txt)}</text>`; cx+=w; });
+    cols.forEach(([w,,,key,mid])=>{ const max=Math.floor((w-10)/7.3);
+      let txt=String(r[key]); if(txt.length>max) txt=txt.slice(0,max-1)+'…';
+      s+=`<text class="lbl" x="${mid?cx+w/2:cx+5}" y="${y+14}" text-anchor="${mid?'middle':'start'}">${esc(txt)}</text>`; cx+=w; });
   });
   return s+'</g>';
 }
 function bomCSV(){
+  if(ISO()) return [L('Поз.;Кол.;Наименование;Обозначение;Примечание','Item;Qty;Description;Ref. designation;Remarks'), ...bomRows().map(r=>[r.item,r.qty,r.name,r.pos,r.note].map(csvq).join(';'))].join('\n');
   return [L('Поз. обозначение;Наименование;Кол.;Примечание','Ref. designation;Description;Qty;Remarks'), ...bomRows().map(r=>[r.pos,r.name,r.qty,r.note].map(csvq).join(';'))].join('\n');
 }
 // ——— таблица входов/выходов PLC по всему проекту ———
@@ -1135,7 +1166,9 @@ document.getElementById('tabs').addEventListener('click',e=>{
     const id='s'+(S.n++); S.sheets.push({id, name:(kind==='Г'?L('Г3 Гидравлика','Hydraulics'):L('Э3 Электрика','Electrical')), kind});
     view='sheet'; switchSheet(id); save(); toast(L('Лист добавлен. Название и вид меняются в панели справа','Sheet added. Name and kind are set in the right panel')); }
 });
+let palKey='';
 function updatePalette(){ const k=curSheet().kind;
+  if(palKey!==LANG+S.std){ buildPalette(); }
   pal.querySelectorAll('.pm:not(.psearch) .pmi').forEach(b=>{ b.hidden=view==='stamp'||!kindAllows(k,b.dataset.type); });
   pal.querySelectorAll('.pm:not(.psearch)').forEach(pm=>{ pm.hidden=![...pm.querySelectorAll('.pmi')].some(b=>!b.hidden); });   // пустые группы прячем
   pal.querySelector('.psearch').hidden=view==='stamp'; }
@@ -1163,7 +1196,8 @@ function buildStampEd(){
       return `<tr><th scope="row">${l}</th><td><input id="stp-${r[0]}-n" value="${esc(st.people[r[0]]?.n||'')}" aria-label="${l}: ${L('фамилия','name')}"></td><td><input id="stp-${r[0]}-d" value="${esc(st.people[r[0]]?.d||'')}" placeholder="${iso?'YYYY-MM-DD':L('мм.гг','mm.yy')}" aria-label="${l}: ${L('дата','date')}"></td></tr>`; }).join('')}</tbody></table>
     <div class="stprev" id="stprev"></div>`;
   const fu=document.getElementById('st-full'); if(fu) fu.onchange=e=>{ push(); st.full=e.target.checked; previewStamp(); save(); };
-  document.getElementById('st-std').onchange=e=>{ push(); S.std=e.target.value; render(); save(); };
+  document.getElementById('st-std').onchange=e=>{ const k=setStd(e.target.value); render();
+    if(k) toast(L(`Обозначения переименованы: ${k}. Вернуть — «Отменить»`,`Designations renamed: ${k}. Undo reverts`)); };
   el.querySelectorAll('input:not([type=checkbox]):not(select)').forEach(i=>{ i.addEventListener('focus',push,{once:true});
     i.addEventListener('input',()=>{ if(i.id.startsWith('st-')) st[i.id.slice(3)]=i.value;
       else { const [,k,f]=i.id.split('-'); (st.people[k] ||= {})[f]=i.value; }
@@ -1208,13 +1242,13 @@ function toast(t){ const el=document.getElementById('toast'); el.textContent=t; 
 // ——— добавление / удаление ———
 function addComp(type){
   push(); const t=T[type];
-  const nums=S.comps.filter(c=>c.type===type||T[c.type].pre===t.pre).map(c=>parseInt((c.ref||'').slice(t.pre.length))||0);
+  const pre=prefixOf(type,S.std), nums=S.comps.filter(c=>(c.ref||'').startsWith(pre)).map(c=>{ const m=/^(\D+)(\d+)$/.exec(c.ref); return m&&m[1]===pre?+m[2]:0; });
   let x=snap(vb.x+vb.w/2), y=snap(vb.y+vb.h/2);
   const here=curComps(); while(here.some(c=>c.x===x&&c.y===y)){ x+=G*2; y+=G*2; }
-  const c={id:'c'+(S.n++), type, sheet:S.cur, x, y, rot:0, ref:t.pre+(Math.max(0,...nums)+1), val:t.val};
+  const c={id:'c'+(S.n++), type, sheet:S.cur, x, y, rot:0, ref:pre+(Math.max(0,...nums)+1), val:t.val};
   if(type==='RECT') c.ref='';
   if(type==='XT'){ // новая клемма продолжает последний клеммник: то же обозначение, следующий номер
-    const last=[...S.comps].reverse().find(o=>o.type==='XT'); c.ref=last?last.ref:'XT1'; if(last) c.val=last.val;
+    const last=[...S.comps].reverse().find(o=>o.type==='XT'); c.ref=last?last.ref:pre+'1'; if(last) c.val=last.val;
     c.tn=String(Math.max(0,...S.comps.filter(o=>o.type==='XT'&&o.ref===c.ref).map(o=>parseInt(o.tn,10)||0))+1); }
   S.comps.push(c); sel={k:'c',id:c.id}; render(); save();
 }
@@ -1403,8 +1437,9 @@ const GROUPS=[
 ];
 { const seen=new Set(GROUPS.flatMap(g=>g[1])), rest=Object.keys(T).filter(k=>!seen.has(k)); if(rest.length) GROUPS.push([['Прочее','Other'],rest]); }
 const iconSVG=t=>{ const [bx,by,bw,bh]=t.box; return `<svg viewBox="${bx-4} ${by-4} ${bw+8} ${bh+8}" aria-hidden="true"><g class="sym">${t.d}</g></svg>`; };
-const itemBtn=k=>{ const t=T[k]; return `<button type="button" class="pmi" data-type="${k}" title="${L('Добавить','Add')}: ${esc(t.name)}">${iconSVG(t)}<span>${esc(t.name)}</span><span class="code">${esc(t.pre)}</span></button>`; };
+const itemBtn=k=>{ const t=T[k]; return `<button type="button" class="pmi" data-type="${k}" title="${L('Добавить','Add')}: ${esc(t.name)}">${iconSVG(t)}<span>${esc(t.name)}</span><span class="code">${esc(prefixOf(k,S&&S.std))}</span></button>`; };
 function buildPalette(){
+  palKey=LANG+(S&&S.std);
   pal.innerHTML = GROUPS.map(([g,ks],i)=>`<div class="pm"><button type="button" class="pmb" data-menu="${i}" aria-expanded="false" aria-haspopup="true">${L(...g)} ▾</button><div class="pmenu" id="pm${i}" hidden>${ks.filter(k=>T[k]).map(itemBtn).join('')}</div></div>`).join('')
     + `<div class="pm psearch"><input id="psearch" type="search" placeholder="${L('Найти элемент…','Find item…')}" autocomplete="off" aria-label="${L('Найти элемент','Find item')}"><div class="pmenu" id="pmS" hidden></div></div>`;
   ps=document.getElementById('psearch'); pmS=document.getElementById('pmS');
@@ -1425,7 +1460,7 @@ document.addEventListener('pointerdown',e=>{ if(!e.target.closest('#pal')) close
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeMenus(); },true);
 function searchPal(){ const q=ps.value.trim().toLowerCase(), k=curSheet().kind;
   if(!q){ pmS.hidden=true; return; }
-  const hits=Object.keys(T).filter(t=>view!=='stamp'&&kindAllows(k,t)&&(T[t].name.toLowerCase().includes(q)||T[t].pre.toLowerCase().includes(q)||(T[t].dev||'').toLowerCase().includes(q))).slice(0,12);
+  const hits=Object.keys(T).filter(t=>view!=='stamp'&&kindAllows(k,t)&&(T[t].name.toLowerCase().includes(q)||prefixOf(t,S.std).toLowerCase().includes(q)||(T[t].dev||'').toLowerCase().includes(q))).slice(0,12);
   pmS.innerHTML=hits.length?hits.map(itemBtn).join(''):`<p class="muted" style="padding:6px 8px">${L('Нет такого элемента на листе этого вида','No such item on a sheet of this kind')}</p>`;
   closeMenus(pmS); pmS.hidden=false; placeMenu(pmS); }
 document.getElementById('b-rot').onclick=rotSel;
@@ -1500,6 +1535,7 @@ function sample(){
     W('w9','e1','1','e5','13'), W('w10','e5','14','e6','1'), W('w11','e6','2','e7','1'), W('w12','e8','2','e9','1')],
   bom:{show:true, sheet:'s2', x:580, y:20},
   stamp:{code:EN()?'WTU-001':'АБВГ.421000.001', title:L('Узел подготовки воды','Water treatment unit'), org:'', litera:'', people:{}}};
+  if(S.std==='iso') convertRefs('iso');
 }
 // ——— растр, PDF, JPG ———
 // доступ к сохранению файлов берём в момент клика: при загрузке страницы окружение может быть ещё не готово
@@ -1902,11 +1938,11 @@ function applyStatic(){
 // переключатель: язык интерфейса (запоминается в браузере) и стандарт оформления проекта — вместе
 document.getElementById('b-lang').onclick=()=>{
   LANG=EN()?'ru':'en'; try{ localStorage.setItem('shemnik-lang',LANG); }catch(e){}
-  const std=EN()?'iso':'gost'; if(S.std!==std){ push(); S.std=std; save(); }
+  const nren=setStd(EN()?'iso':'gost');
   applyLangT(); applyStatic(); buildPalette(); updFile();
   document.getElementById('b-new').textContent=L('📄 Новая схема','📄 New diagram');
   render();
-  toast(EN()?'English · ISO 5457 frame, ISO 7200 title block':'Русский · оформление по ГОСТ 2.104');
+  toast((EN()?'English · ISO 5457 / 7200, IEC 81346 designations':'Русский · ГОСТ 2.104, обозначения по ГОСТ')+(nren?L(` · переименовано: ${nren}`,` · renamed: ${nren}`):''));
 };
 applyStatic();
 try{ const d=JSON.parse(localStorage.getItem('shemnik')||'null'); if(d&&d.comps&&d.comps.length) S=migrate(d); else sample(); }catch(e){ sample(); }
