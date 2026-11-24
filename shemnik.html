@@ -782,7 +782,7 @@ function migrate(d){
   // листы: id только из букв/цифр, вид — из списка
   const sid=new Set();
   d.sheets=(Array.isArray(d.sheets)?d.sheets:[]).filter(s=>s&&ID_RE.test(s.id)&&!sid.has(s.id)&&sid.add(s.id));
-  d.sheets.forEach(s=>{ if(!KIND[s.kind]) s.kind='С'; s.name=str(s.name); if(s.code!==undefined) s.code=str(s.code); ['mm','th','sw'].forEach(k=>{ if(s[k]!==undefined){ s[k]=num(s[k],0); if(!(s[k]>0)) delete s[k]; } }); });
+  d.sheets.forEach(s=>{ if(!KIND[s.kind]) s.kind='С'; s.name=str(s.name); ['code','title','desig'].forEach(k=>{ if(s[k]!==undefined) s[k]=str(s[k]); }); ['mm','th','sw'].forEach(k=>{ if(s[k]!==undefined){ s[k]=num(s[k],0); if(!(s[k]>0)) delete s[k]; } }); });
   if(!d.sheets.length) d.sheets=[{id:'s1',name:L('Лист 1','Sheet 1'),kind:'С'}];
   d.std=d.std==='iso'?'iso':'gost';
   if(!d.sheets.some(s=>s.id===d.cur)) d.cur=d.sheets[0].id;
@@ -1337,7 +1337,10 @@ function renderProps(){
       <div class="field"><label for="f-sname">${L('Название','Name')}</label><input id="f-sname" value="${esc(s.name)}"></div>
       <div class="field"><label for="f-skind">${L('Вид','Kind')}</label><select id="f-skind">${Object.keys(KIND).map(k=>`<option value="${k}"${k===s.kind?' selected':''}>${kindName(k)}</option>`).join('')}</select></div>
       <div class="field"><label for="f-scode">${L('Код в штампе','Code in title block')}</label><input id="f-scode" value="${esc(s.code||'')}" placeholder="${esc(defCode(s)||L('нет','none'))}"></div>
-      <p class="muted" style="margin-bottom:6px">${L('В штампе','In title block')}: ${esc(designation(s)||'—')}</p>
+      <div class="field"><label for="f-stitle">${L('Наимено&shy;вание','Title')}</label><input id="f-stitle" value="${esc(s.title||'')}" placeholder="${esc(S.stamp.title||L('как в штампе','as in title block'))}"></div>
+      <div class="field"><label for="f-sdesig">${L('Обозначе&shy;ние','Ident. No.')}</label><input id="f-sdesig" value="${esc(s.desig||'')}" placeholder="${esc([S.stamp.code, sheetCode(s)].filter(Boolean).join(' ')||L('как в штампе','as in title block'))}"></div>
+      <p class="muted" style="margin-bottom:6px" id="f-sinfo"></p>
+      <p class="muted" style="margin-bottom:6px">${L('Наименование или обозначение заполнено — лист идёт отдельным документом (например, чертёж детали): своё название и номер в штампе, форма 1, «Лист 1 / Листов 1». Пусто — как в общем штампе проекта.','If the title or ident. number is filled in, the sheet is a separate document (e.g. a part drawing): its own title and number in the title block, sheet 1 of 1. Empty — as in the project title block.')}</p>
       ${s.kind==='Мх'?`<div class="field"><label for="f-smm">${L('Клетка, мм','Cell, mm')}</label><input id="f-smm" value="${esc(String(sheetMM(s)))}" inputmode="decimal"></div>
       <div class="field"><label for="f-sth">${L('Цифры, мм','Digits, mm')}</label><select id="f-sth">${[1.8,2.5,3.5,5,7,10,14,20].map(v=>`<option value="${v}"${v===shTH(s)?' selected':''}>${fmtMM(v)}</option>`).join('')}${[1.8,2.5,3.5,5,7,10,14,20].includes(shTH(s))?'':`<option selected>${fmtMM(shTH(s))}</option>`}</select></div>
       <div class="field"><label for="f-ssw">${L('Линия s, мм','Line s, mm')}</label><select id="f-ssw">${[0.35,0.5,0.7,1,1.4,2].map(v=>`<option value="${v}"${v===shSW(s)?' selected':''}>${fmtMM(v)}</option>`).join('')}${[0.35,0.5,0.7,1,1.4,2].includes(shSW(s))?'':`<option selected>${fmtMM(shSW(s))}</option>`}</select></div><p class="muted" style="margin-bottom:6px">${L('Сколько миллиметров детали в одной клетке сетки. По этому масштабу считаются все размеры листа. Высота цифр (со стрелками) и толщина линий тоже в миллиметрах чертежа — при любом масштабе они в той же пропорции к детали: 1 клетка = 1 мм — натуральная величина, 1:1. Линии, прямоугольники, окружности и размеры — в меню «Механика».','How many millimetres of the part one grid cell stands for. All dimensions on this sheet are computed with it. Digits (with arrows) and line thickness are in drawing millimetres too, so they keep their size relative to the part at any scale: 1 cell = 1 mm is real size, 1:1. Lines, rectangles, circles and dimensions are in the “Mechanics” menu.')}</p>`:''}
@@ -1354,9 +1357,13 @@ function renderProps(){
     [['f-sth','th'],['f-ssw','sw']].forEach(([id,k])=>{ const i=document.getElementById(id); if(i) i.onchange=()=>{ const v=parseFloat(String(i.value).replace(',','.')); if(v>0){ push(); s[k]=v; } render(); save(); }; });
     const smm=document.getElementById('f-smm'); if(smm) smm.addEventListener('change',()=>{ const v=parseFloat(smm.value.replace(',','.'));
       if(v>0&&v<=100000){ push(); s.mm=v; } render(); save(); });
+    // строка «В штампе» обновляется на лету; панель не перестраиваем, чтобы не сбить фокус при переходе к следующему полю
+    const sinfo=()=>{ document.getElementById('f-sinfo').textContent=`${L('В штампе','In title block')}: ${designation(s)||'—'}${sheetTitle(s)?' · '+sheetTitle(s):''}${ownDoc(s)?' · '+L('лист 1 из 1','sheet 1 of 1'):''}`; };
+    sinfo();
+    [['f-stitle','title'],['f-sdesig','desig']].forEach(([id,k])=>{ const i=document.getElementById(id);
+      i.addEventListener('focus',push,{once:true}); i.addEventListener('input',()=>{ if(i.value) s[k]=i.value; else delete s[k]; sinfo(); save(); }); });
     const sc=document.getElementById('f-scode');
-    sc.addEventListener('focus',push,{once:true}); sc.addEventListener('input',()=>{ s.code=sc.value; save(); });
-    sc.addEventListener('change',()=>render());
+    sc.addEventListener('focus',push,{once:true}); sc.addEventListener('input',()=>{ s.code=sc.value; sinfo(); save(); });
     document.getElementById('b-sleft').onclick=()=>moveSheet(s.id, sheetNo(s.id)-2);
     document.getElementById('b-sright').onclick=()=>moveSheet(s.id, sheetNo(s.id));
     document.getElementById('b-sdel').onclick=()=>{ if(S.sheets.length<2) return; push();
@@ -1435,9 +1442,9 @@ function buildStampEd(){
   const stdSel=`<label class="stf" style="flex-direction:row;align-items:center;gap:8px;margin-top:8px"><span>${L('Стандарт оформления','Drawing standard')}</span><select id="st-std"><option value="gost"${iso?'':' selected'}>${L('ГОСТ 2.104 (рамка 20/5 мм, основная надпись)','GOST 2.104 (frame 20/5 mm, Russian title block)')}</option><option value="iso"${iso?' selected':''}>ISO 5457 + ISO 7200</option></select></label>`;
   el.innerHTML=iso
     ? `<div><h2 class="sth">${L('Основная надпись','Title block')} · ISO 7200</h2>
-    <p class="muted">${L('Одна на весь проект, одинаковая на всех листах (180×36 мм). Лист — рамка по ISO 5457: поле 20 мм слева, 10 мм с остальных сторон, центрирующие метки и сетка зон 50 мм (1…6 × A…D).','One for the whole project, the same on every sheet (180×36 mm). The sheet frame follows ISO 5457: 20 mm filing margin on the left, 10 mm on the other sides, centring marks and a 50 mm grid reference system (1…6 × A…D).')}</p>${stdSel}</div>`
+    <p class="muted">${L('Одна на весь проект, одинаковая на всех листах (180×36 мм). Лист — рамка по ISO 5457: поле 20 мм слева, 10 мм с остальных сторон, центрирующие метки и сетка зон 50 мм (1…6 × A…D). Лист со своим наименованием или обозначением (в свойствах листа) — отдельный документ, например чертёж детали: в штампе его данные, «Лист 1 / Листов 1».','One for the whole project, the same on every sheet (180×36 mm). The sheet frame follows ISO 5457: 20 mm filing margin on the left, 10 mm on the other sides, centring marks and a 50 mm grid reference system (1…6 × A…D). A sheet with its own title or ident. number (in the sheet properties) is a separate document, e.g. a part drawing: its own data in the title block, sheet 1 of 1.')}</p>${stdSel}</div>`
     : `<div><h2 class="sth">${L('Основная надпись','Title block')} · ГОСТ 2.104</h2>
-    <p class="muted">${L('Одна на весь проект. Лист 1 получает форму 1, остальные — форму 2а (185×15 мм). К шифру добавляется код листа (Э3, Г3, П3) — он меняется в свойствах листа.','One for the whole project. Sheet 1 gets form 1, the others form 2a (185×15 mm). The sheet code (Э3, Г3, П3) is appended to the designation — it is set in the sheet properties.')}</p>${stdSel}
+    <p class="muted">${L('Одна на весь проект. Лист 1 получает форму 1, остальные — форму 2а (185×15 мм). К шифру добавляется код листа (Э3, Г3, П3) — он меняется в свойствах листа. Лист со своим наименованием или обозначением (в свойствах листа) — отдельный документ, например чертёж детали: в штампе его данные, «Лист 1 / Листов 1».','One for the whole project. Sheet 1 gets form 1, the others form 2a (185×15 mm). The sheet code (Э3, Г3, П3) is appended to the designation — it is set in the sheet properties. A sheet with its own title or ident. number (in the sheet properties) is a separate document, e.g. a part drawing: its own data in the title block, sheet 1 of 1.')}</p>${stdSel}
     <label class="stf" style="flex-direction:row;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="st-full"${st.full?' checked':''}> ${L('полная форма 1 со строками изменений (185×55 мм) — иначе сокращённая 185×30','full form 1 with revision rows (185×55 mm) — otherwise the short 185×30')}</label></div>`;
   el.innerHTML+=`
     <div class="stgrid">${F.map(([k,l,ph])=>`<label class="stf"><span>${l}</span><input id="st-${k}" value="${esc(st[k]||'')}" placeholder="${esc(ph)}"${k==='litera'?' maxlength="3"':''}></label>`).join('')}</div>
@@ -1454,11 +1461,11 @@ function buildStampEd(){
   previewStamp();
 }
 function previewStamp(){
-  const sh=S.sheets, m=sh.length;
+  const all=S.sheets, main=all.filter(s=>!ownDoc(s)), sh=main.length?main:all, m=sh.length;
   let h=ISO() ? `<h2 class="sth">${L('Все листы — ISO 7200 (180×36)','All sheets — ISO 7200 (180×36)')}</h2>${stampSVG(sh[0],1,m,1,4)}`
     : `<h2 class="sth">${L('Лист 1 — форма 1','Sheet 1 — form 1')}${S.stamp.full?' (185×55)':L(', сокращённая (185×30)',', short (185×30)')}</h2>${stampSVG(sh[0],1,m,1,4)}`;
   if(m>1&&!ISO()) h+=`<h2 class="sth">${m===2?L('Лист 2','Sheet 2'):L('Листы 2–','Sheets 2–')+m} — ${L('форма 2а','form 2a')}</h2>${stampSVG(sh[1],2,m,2,4)}`;
-  h+=`<h2 class="sth">${L('Листы проекта','Project sheets')}</h2><ul class="net">${sh.map((s,i)=>`<li><b>${i+1}</b>${esc(designation(s)||'—')} · ${esc(docName(s))} <span style="color:var(--muted)">(${esc(s.name)})</span></li>`).join('')}</ul>`;
+  h+=`<h2 class="sth">${L('Листы проекта','Project sheets')}</h2><ul class="net">${all.map((s,i)=>`<li><b>${i+1}</b>${esc(designation(s)||'—')} · ${ownDoc(s)?esc(sheetTitle(s)||'')+' · ':''}${esc(docName(s))} <span style="color:var(--muted)">(${esc(s.name)}${ownDoc(s)?L(', отдельный документ',', separate document'):''})</span></li>`).join('')}</ul>`;
   document.getElementById('stprev').innerHTML=h;
 }
 
@@ -1857,7 +1864,13 @@ const DOCNAME_EN={Мх:'Drawing', М:'Electrical wiring diagram', Э:'Electrical
 // коды документов Э3/Г3 — по ГОСТ 2.701; в ISO у всех листов одно обозначение, код листа — только если вписан вручную
 const defCode = s => ISO() || s.kind==='С' || s.kind==='Мх' ? '' : s.kind==='М' ? 'Э4' : s.kind+'3';
 const sheetCode = s => (s.code&&s.code.trim()) || defCode(s);
-const designation = s => [S.stamp.code, sheetCode(s)].filter(Boolean).join(' ');
+// лист со своим наименованием или обозначением — отдельный документ (например, чертёж детали в проекте схем):
+// в штампе его название и обозначение, форма 1, «Лист 1 / Листов 1»; остальные листы нумеруются без него
+const ownDoc = s => !!((s.title&&s.title.trim())||(s.desig&&s.desig.trim()));
+const designation = s => (s.desig&&s.desig.trim()) || [S.stamp.code, sheetCode(s)].filter(Boolean).join(' ');
+const sheetTitle = s => (s.title&&s.title.trim()) || S.stamp.title;
+function docPos(sh){ if(ownDoc(sh)) return {n:1,m:1,first:true};
+  const main=S.sheets.filter(s=>!ownDoc(s)), i=main.indexOf(sh); return {n:i+1, m:main.length, first:i===0}; }
 const docName = s => { const d=EN()?DOCNAME_EN:DOCNAME; return d[s.kind]||d.С; };
 // ——— ISO 7200: поле идентификации справа (обозначение, изм., дата выпуска, язык, лист), слева — владелец и подписи ———
 const ISO_SW=180, ISO_SH=36;
@@ -1881,7 +1894,7 @@ function isoStampSVG(sh, n, m, k){
   Tx(1,11.4,1.8,'Legal owner'); { const t=String(st.org||''); Tx(19,24,3.5,t,36,'middle',true); }
   const person=(y,key)=>{ const p=pp[key]||{}; Tx(39,y+2.4,1.8,ISO_ROLES[key]); Tx(39.2,y+7,2.8,p.n,26); Tx(77,y+7,2.2,p.d,12,'end'); };
   person(9,'dev'); person(18,'chk'); person(27,'app');
-  Tx(79,11.4,1.8,'Title, supplementary title'); Tx(109,22.5,4,st.title,60,'middle',true);
+  Tx(79,11.4,1.8,'Title, supplementary title'); Tx(109,22.5,4,sheetTitle(sh),60,'middle',true);
   Tx(141,11.4,1.8,'Identification number'); Tx(160,22.5,4,designation(sh),38,'middle',true);
   cell(78,27,14,9,'Rev.',st.rev,3.5); cell(92,27,28,9,'Date of issue',st.issued);
   cell(120,27,20,9,'Lang.',st.lang||LANG,3);
@@ -1906,7 +1919,7 @@ function stampSVG(sh, n, m, form, k){
     L(65,10,185,10,1); L(135,10,135,30,1);
     L(135,15,185,15); L(135,20,185,20,1); L(135,25,185,25,1); L(150,10,150,20,1); L(167,10,167,20,1); L(140,15,140,20); L(145,15,145,20); L(155,20,155,25);
     Tx(125,7.2,4.5,designation(sh),116,'middle');
-    Tx(100,17.5,3.2,st.title,68,'middle'); Tx(100,24.5,2.8,docName(sh),68,'middle');
+    Tx(100,17.5,3.2,sheetTitle(sh),68,'middle'); Tx(100,24.5,2.8,docName(sh),68,'middle');
     Tx(142.5,13.6,2.3,'Лит.',0,'middle'); Tx(158.5,13.6,2.3,'Масса',0,'middle'); Tx(176,13.6,2.3,'Масштаб',0,'middle');
     [...(st.litera||'').slice(0,3)].forEach((ch,i)=>Tx(137.5+i*5,18.8,3,ch,0,'middle'));
     Tx(136,23.6,2.3,`Лист ${n}`); Tx(156,23.6,2.3,`Листов ${m}`);
@@ -1918,7 +1931,7 @@ function stampSVG(sh, n, m, form, k){
     L(65,15,185,15,1); L(65,40,185,40,1); L(135,15,135,55,1);
     L(135,20,185,20); L(135,35,185,35,1); L(150,15,150,35,1); L(167,15,167,35,1); L(140,20,140,35); L(145,20,145,35); L(155,35,155,40);
     Tx(125,10,5,designation(sh),116,'middle');
-    Tx(100,24.5,3.5,st.title,68,'middle'); Tx(100,32,3,docName(sh),68,'middle');
+    Tx(100,24.5,3.5,sheetTitle(sh),68,'middle'); Tx(100,32,3,docName(sh),68,'middle');
     Tx(142.5,18.6,2.5,'Лит.',0,'middle'); Tx(158.5,18.6,2.5,'Масса',0,'middle'); Tx(176,18.6,2.5,'Масштаб',0,'middle');
     [...(st.litera||'').slice(0,3)].forEach((ch,i)=>Tx(137.5+i*5,29,3.5,ch,0,'middle'));
     Tx(136,38.7,2.5,`Лист ${n}`); Tx(156,38.7,2.5,`Листов ${m}`);
@@ -1931,7 +1944,7 @@ function stampSVG(sh, n, m, form, k){
   o+=`<rect x="0.25" y="0.25" width="${W-0.5}" height="${H-0.5}" fill="none" stroke="#000" stroke-width="0.5"/>`;
   return o+'</svg>';
 }
-function stampImage(sh,n,m){ const img=new Image();
+function stampImage(sh){ const img=new Image(), {n,m}=docPos(sh);   // номер и число листов — внутри своего документа
   return new Promise((res,rej)=>{ img.onload=()=>res(img); img.onerror=rej;
     img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(stampSVG(sh,n,m,n===1?1:2,8)); }); }
 // ISO 5457, A4 альбомный: рамка 0,7 мм в 20 мм слева и 10 мм с остальных сторон, центрирующие метки,
@@ -2023,8 +2036,8 @@ document.getElementById('io-pdf').onclick=async()=>{
     let first=null, noStamp=false; lastPages=pages;
     for(let i=0;i<pages.length;i++){ const p=pages[i]; if(i) pdf.addPage('a4','landscape'); let cv;
       if(framed){ step=L(`лист ${i+1}: штамп`,`sheet ${i+1}: title block`);
-        let st=null; try{ st=await stampImage(p.sheet,i+1,pages.length); }catch(e){ noStamp=true; }
-        step=L(`лист ${i+1}: страница`,`sheet ${i+1}: page`); cv=sheetCanvas(p.sch, st, i===0); pdf.addImage(jpegURL(cv),'JPEG',0,0,297,210,undefined,'FAST'); }
+        let st=null; try{ st=await stampImage(p.sheet); }catch(e){ noStamp=true; }
+        step=L(`лист ${i+1}: страница`,`sheet ${i+1}: page`); cv=sheetCanvas(p.sch, st, docPos(p.sheet).first); pdf.addImage(jpegURL(cv),'JPEG',0,0,297,210,undefined,'FAST'); }
       else { step=L(`лист ${i+1}: страница`,`sheet ${i+1}: page`); cv=p.sch; const k=Math.min(277/cv.width,190/cv.height), w=cv.width*k, h=cv.height*k;
         pdf.addImage(jpegURL(cv),'JPEG',(297-w)/2,(210-h)/2,w,h,undefined,'FAST'); }
       if(!i) first=cv; }
@@ -2039,8 +2052,8 @@ async function pageCanvas(i){   // i — индекс листа
   const keep=S.cur, keepSel=sel; sel=null; let sch;
   try{ S.cur=S.sheets[i].id; ROUTES=S.route==='simple'?null:routeAll(); sch=await rasterize(4); }
   finally{ S.cur=keep; sel=keepSel; ROUTES=S.route==='simple'?null:routeAll(); }
-  let st=null; try{ st=await stampImage(S.sheets[i],i+1,S.sheets.length); }catch(e){}
-  return sheetCanvas(sch, st, i===0);
+  let st=null; try{ st=await stampImage(S.sheets[i]); }catch(e){}
+  return sheetCanvas(sch, st, docPos(S.sheets[i]).first);
 }
 async function pvShow(i){
   pvI=Math.max(0,Math.min(S.sheets.length-1,i));
@@ -2093,8 +2106,8 @@ document.getElementById('io-a4jpg').onclick=async()=>{
   const pages=lastPages; if(!pages||!pages.length){ msg(L('Сначала нажми «⬇ PDF»','Press “⬇ PDF” first')); return; }
   try{
     for(let i=0;i<pages.length;i++){
-      let st=null; try{ st=await stampImage(pages[i].sheet,i+1,pages.length); }catch(e){}
-      const cv=sheetCanvas(pages[i].sch, st, i===0);
+      let st=null; try{ st=await stampImage(pages[i].sheet); }catch(e){}
+      const cv=sheetCanvas(pages[i].sch, st, docPos(pages[i].sheet).first);
       msg(L(`Лист ${i+1} из ${pages.length}…`,`Sheet ${i+1} of ${pages.length}…`));
       const ok=await offer(fname('jpg',`skhema-A4-l${i+1}`), await toBlob(cv,'image/jpeg',0.92), cv);
       if(!ok) return;
