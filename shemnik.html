@@ -417,6 +417,9 @@ const T = {
   CIRC:{name:'Окружность', pre:'', val:'', k:'Мх', pins:[], box:[-22,-22,44,44], noLabel:true, noIo:true,
         d:'<circle cx="0" cy="0" r="16"/><path class="thin" d="M-22 0H22M0 -22V22" stroke-dasharray="8 2 1 2"/>',
         dyn:Object.assign(c=>circLayout(c),{key:c=>JSON.stringify([c.r,c.ax])})},
+  LINE:{name:'Линия', pre:'', val:'', k:'Мх', pins:[], box:[-32,-14,64,28], noLabel:true, noIo:true,
+        d:'<path d="M-30 -8H30"/><path class="thin" d="M-30 8H30" stroke-dasharray="8 4"/>',
+        dyn:Object.assign(c=>lineLayout(c),{key:c=>JSON.stringify([c.dx,c.dy,c.ls,c.ends])})},
   DIML:{name:'Размер линейный', pre:'', val:'', k:'Мх', pins:[], box:[-32,-24,64,36], noLabel:true, noIo:true,
         d:'<path class="thin" d="M-30 10V-16M30 10V-16M-30 -8H30"/><path class="fill thin" d="M-30 -8l9 -3v6zM30 -8l-9 -3v6z"/><text x="0" y="-12" text-anchor="middle" class="fill" style="stroke:none;font:italic 11px sans-serif">50</text>',
         dyn:Object.assign(c=>dimLLayout(c),{key:c=>JSON.stringify([c.dx,c.dy,c.off,c.mode,c.rang,c.val,c.tol,mmPP(c),LANG])})},
@@ -503,7 +506,7 @@ const TEN={R:['Resistor','1 kΩ'], C:['Capacitor','100 nF'], VD:['Diode','1N4007
   YVP:['Pneumatic valve','NC, 24 V','Pneumatic valve','valve'], BPP:['Pressure transmitter (PT)','0…10 bar','Pressure transmitter','sensor'],
   BFP:['Flow sensor (FT)','0…500 l/min','Flow sensor','sensor'], BFE:['Flow sensor','0…500 l/min','Flow sensor','4…20 mA'],
   VP:['Manual valve','G1/4'], EIN:['Line inlet (el.)','L1'], EOUT:['Line outlet (el.)','L1'], GND:['Ground',''], VCC:['Power','+24 V'],
-  CIRC:['Circle',''], DIML:['Linear dimension',''], DIMD:['Diameter dimension',''], DIMR:['Radius dimension','']};
+  CIRC:['Circle',''], LINE:['Line',''], DIML:['Linear dimension',''], DIMD:['Diameter dimension',''], DIMR:['Radius dimension','']};
 const TRU={};
 function applyLangT(){
   Object.keys(T).forEach(k=>{ const t=T[k];
@@ -612,7 +615,7 @@ function noteLayout(c){
 }
 // ——— механика: окружность и размеры ———
 // Масштаб листа «Мх»: s.mm — сколько миллиметров в одной клетке сетки (20 px); размеры считаются по нему
-const MECH=new Set(['CIRC','DIML','DIMD','DIMR']), RDIM=new Set(['DIMD','DIMR']);
+const MECH=new Set(['CIRC','LINE','DIML','DIMD','DIMR']), RDIM=new Set(['DIMD','DIMR']);
 const sheetMM=s=>s&&+s.mm>0?+s.mm:10;
 const mmPP=c=>sheetMM(S&&S.sheets.find(s=>s.id===(c.sheet||S.sheets[0].id)))/G;   // мм на 1 px
 // число для надписи: до 0,01 мм, в русском интерфейсе — с запятой (ГОСТ 2.307)
@@ -635,6 +638,24 @@ function circLayout(c){
   if(c.ax!==false) d+=`<path class="thin" d="M${-e} 0H${e}M0 ${-e}V${e}" stroke-dasharray="${r<15?'6 2 1 2':'16 3 2 3'}"/>`;
   return {d, box:[-e,-e,2*e,2*e], hitd:`M${r} 0A${r} ${r} 0 1 0 ${-r} 0A${r} ${r} 0 1 0 ${r} 0`+(c.ax!==false?`M${-e} 0H${e}M0 ${-e}V${e}`:'')+'M-6 0H6M0 -6V6',
     hs:[['r',k,-k,L('Радиус','Radius')]]};
+}
+// линия: p1 — точка элемента (0,0), p2 — (dx,dy); тип по ГОСТ 2.303 (s = 2 px), на концах — стрелки по выбору
+const LTYPES=[['main','Сплошная основная','Solid thick'],['thin','Сплошная тонкая','Solid thin'],['wavy','Сплошная волнистая','Freehand (wavy)'],
+  ['dash','Штриховая','Dashed'],['chain','Штрихпунктирная тонкая','Chain thin'],['chainb','Штрихпунктирная утолщённая','Chain thick'],
+  ['chain2','Штрихпунктирная с двумя точками','Chain double-dashed'],['open','Разомкнутая','Cutting plane'],['zig','Сплошная тонкая с изломами','Thin with zigzags']];
+const LSTY={main:'', thin:' class="thin"', dash:' class="thin" stroke-dasharray="8 4" stroke-linecap="butt"', chain:' class="thin" stroke-dasharray="16 3 2 3" stroke-linecap="butt"',
+  chainb:' style="stroke-width:1.5" stroke-dasharray="12 3 2 3" stroke-linecap="butt"', chain2:' class="thin" stroke-dasharray="16 3 2 3 2 3" stroke-linecap="butt"'};
+function lineLayout(c){
+  const dx=num(c.dx,120), dy=num(c.dy,0), l=Math.hypot(dx,dy), ux=l>0.5?dx/l:1, uy=l>0.5?dy/l:0, nx=-uy, ny=ux, ls=c.ls||'main';
+  const P=(t,o=0)=>`${r2(t*ux+o*nx)} ${r2(t*uy+o*ny)}`;
+  let d;
+  if(ls==='wavy'){ let q=`M0 0`; for(let t=2;t<l;t+=2) q+=`L${P(t,3*Math.sin(t/16*2*Math.PI))}`; d=`<path class="thin" d="${q}L${P(l)}"/>`; }
+  else if(ls==='zig'){ const m=l/2; d=`<path class="thin" d="M0 0L${P(m-6)}L${P(m-2,7)}L${P(m+2,-7)}L${P(m+6)}L${P(l)}"/>`; }
+  else if(ls==='open'){ const k=Math.min(20,l/3); d=`<path style="stroke-width:3" stroke-linecap="butt" d="M0 0L${P(k)}M${P(l-k)}L${P(l)}"/>`; }
+  else d=`<path${LSTY[ls]||''} d="M0 0L${P(l)}"/>`;
+  const e=c.ends||'';
+  if(e) d+=`<path class="fill thin" d="${arrowD(dx,dy,ux,uy)}${e==='both'?arrowD(0,0,-ux,-uy):''}"/>`;
+  return {d, box:bboxOf([[0,0],[dx,dy]],10), hitd:`M0 0L${dx} ${dy}`, hs:[['p1',0,0,L('Начало','Start')],['p2',dx,dy,L('Конец','End')]]};
 }
 // линейный размер: p1 — точка элемента (0,0), p2 — (dx,dy); off — вынос размерной линии от p1 по нормали;
 // mode: h — горизонтальный, v — вертикальный, al — параллельный отрезку, r — повёрнутый (направление измерения rang°)
@@ -685,6 +706,9 @@ const r2=v=>Math.round(v*100)/100, nang=a=>{ a=r2(((a%360)+360)%360); return a>1
 const dimDir=c=>{ const g=dimLGeom(c); return nang(Math.atan2(g.uy,g.ux)*180/Math.PI); };
 function rotDim(c,th){
   if(RDIM.has(c.type)){ c.ang=nang(num(c.ang,-40)+th); return; }
+  if(c.type==='LINE'){ const dx=num(c.dx,120), dy=num(c.dy,0), t=th*Math.PI/180, co=Math.cos(t), si=Math.sin(t), mx=dx/2, my=dy/2;
+    const rot=(x,y)=>[mx+(x-mx)*co-(y-my)*si, my+(x-mx)*si+(y-my)*co], p1=rot(0,0), p2=rot(dx,dy);
+    c.x=r2(c.x+p1[0]); c.y=r2(c.y+p1[1]); c.dx=r2(p2[0]-p1[0]); c.dy=r2(p2[1]-p1[1]); return; }
   if(c.type!=='DIML') return;
   const g=dimLGeom(c), dir=dimDir(c), t=th*Math.PI/180, co=Math.cos(t), si=Math.sin(t);
   const mx=g.dx/2, my=g.dy/2, rot=(x,y)=>[mx+(x-mx)*co-(y-my)*si, my+(x-mx)*si+(y-my)*co];
@@ -697,12 +721,13 @@ function rotDim(c,th){
   else if(a===180){ c.mode='h'; c.off=-off; } else if(a===-90){ c.mode='v'; c.off=-off; }   // направление развернулось — нормаль тоже
   else { c.mode='r'; c.rang=a; }
 }
-// привязка точек размера: центр и четверти окружностей, концы других размеров; иначе — шаг 10 px
+// привязка точек: центр и четверти окружностей, концы и середины линий, концы размеров; иначе — шаг 10 px
 function snapPt(x,y,skip){
   let best=null, bd=12*Math.max(0.6,vb.w/(svg.clientWidth||vb.w));
   curComps().forEach(o=>{ if(o.id===skip) return; const pts=[];
     if(o.type==='CIRC'){ const r=cr(o); pts.push([o.x,o.y],[o.x+r,o.y],[o.x-r,o.y],[o.x,o.y+r],[o.x,o.y-r]); }
     else if(o.type==='DIML') pts.push([o.x,o.y],[o.x+num(o.dx,120),o.y+num(o.dy,0)]);
+    else if(o.type==='LINE'){ const ex=o.x+num(o.dx,120), ey=o.y+num(o.dy,0); pts.push([o.x,o.y],[ex,ey],[(o.x+ex)/2,(o.y+ey)/2]); }
     pts.forEach(p=>{ const dd=Math.hypot(p[0]-x,p[1]-y); if(dd<bd){ bd=dd; best=p; } }); });
   return best?best.slice():[Math.round(x/10)*10, Math.round(y/10)*10];
 }
@@ -734,7 +759,7 @@ function migrate(d){
   d.comps.forEach(c=>{
     if(!c.sheet||!d.sheets.some(s=>s.id===c.sheet)) c.sheet=d.sheets[0].id;
     c.x=num(c.x); c.y=num(c.y); c.rot=[0,90,180,270].includes(num(c.rot))?num(c.rot):0;
-    ['ref','val','note','io','pos','lead','tn','pl','pr','mode','tol'].forEach(k=>{ if(c[k]!==undefined) c[k]=str(c[k]); });
+    ['ref','val','note','io','pos','lead','tn','pl','pr','mode','tol','ls','ends'].forEach(k=>{ if(c[k]!==undefined) c[k]=str(c[k]); });
     ['tx','ty','pw','pp','ndi','ndq','nai','naq','nch','base','nt','rw','rh','r','dx','dy','off','ang','rang'].forEach(k=>{ if(c[k]!==undefined) c[k]=num(c[k]); });
     if(c.dash!==undefined) c.dash=!!c.dash;
     if(c.ax!==undefined) c.ax=!!c.ax;
@@ -1017,7 +1042,7 @@ function wireSVG(w, forExport){
 }
 // ручки сегментов у выбранного провода: тянуть поперёк сегмента
 // ——— перечень элементов (ГОСТ 2.701): одинаковые элементы с подряд идущими номерами сводятся в одну строку
-const BOM_SKIP=new Set(['GND','VCC','HIN','HOUT','EIN','EOUT','PIN','POUT','NOTE','RECT','CIRC','DIML','DIMD','DIMR']);
+const BOM_SKIP=new Set(['GND','VCC','HIN','HOUT','EIN','EOUT','PIN','POUT','NOTE','RECT','CIRC','LINE','DIML','DIMD','DIMR']);
 const EFLAG=new Set(['EIN','EOUT']);
 const COLS_G=[[90,'Поз. обозн.','Ref. des.','pos'],[270,'Наименование','Description','name'],[44,'Кол.','Qty','qty',1],[130,'Примечание','Remarks','note']];
 // ISO 7573: номер позиции, количество, наименование, обозначение, примечание
@@ -1146,6 +1171,11 @@ function mechProps(c,el){
       +sel_('f-ax',L('Осевые','Centre lines'),[['1',L('есть','shown')],['',L('нет','hidden')]],c.ax===false?'':'1')
       +`<div class="row" style="margin:6px 0"><button id="b-addD">${L('＋ Размер Ø','＋ Ø dimension')}</button><button id="b-addR">${L('＋ Размер R','＋ R dimension')}</button></div>`
       +`<p class="muted">${L('Ручка на контуре — радиус. Двигать — за контур или центр. Центр и четверти окружности притягивают концы линейных размеров.','The handle on the outline sets the radius. Move it by the outline or centre. The centre and quadrant points attract linear dimension ends.')}</p>`;
+  } else if(c.type==='LINE'){ const dx=num(c.dx,120), dy=num(c.dy,0);
+    h+=sel_('f-ls',L('Тип','Type'),LTYPES.map(([v,ru,en])=>[v,L(ru,en)]),c.ls||'main')
+      +sel_('f-ends',L('Концы','Ends'),[['',L('без стрелок','plain')],['end',L('стрелка в конце','arrow at end')],['both',L('стрелки с двух сторон','arrows both ends')]],c.ends||'')
+      +fld('f-llen',L('Длина, мм','Length, mm'),raw(Math.hypot(dx,dy)*k))+fld('f-lang',L('Угол, °','Angle, °'),String(nang(Math.atan2(dy,dx)*180/Math.PI)))
+      +`<p class="muted">${L('Ручки на концах притягиваются к центру и четвертям окружностей, концам и серединам других линий. «Длина» и «Угол» — от начала линии; <kbd>R</kbd> — поворот на 90° вокруг середины. Угол считается по часовой от горизонтали.','End handles snap to circle centres and quadrants, ends and midpoints of other lines. “Length” and “Angle” keep the start point; <kbd>R</kbd> turns it 90° about the middle. Angle is clockwise from horizontal.')}</p>`;
   } else if(c.type==='DIML'){ const g=dimLGeom(c);
     h+=sel_('f-dmode',L('Тип','Type'),[['h',L('горизонтальный','horizontal')],['v',L('вертикальный','vertical')],['al',L('параллельный','aligned')],['r',L('повёрнутый','rotated')]],g.mode)
       +fld('f-drot',L('Поворот, °','Rotation, °'),String(dimDir(c)))
@@ -1165,6 +1195,12 @@ function mechProps(c,el){
   on('f-md','change',i=>{ const v=pnum(i.value); if(v>0){ push(); c.r=v/2/k; } commit(); });
   on('f-dr','change',i=>{ const v=pnum(i.value); if(v>0){ push(); c.r=(c.type==='DIMD'?v/2:v)/k; } commit(); });
   on('f-ax','change',i=>{ push(); if(i.value) delete c.ax; else c.ax=false; commit(); });
+  on('f-ls','change',i=>{ push(); c.ls=i.value; commit(); });
+  on('f-ends','change',i=>{ push(); if(i.value) c.ends=i.value; else delete c.ends; commit(); });
+  const setLine=(len,ang)=>{ const a=ang*Math.PI/180; c.dx=r2(len*Math.cos(a)); c.dy=r2(len*Math.sin(a)); };
+  const lcur=()=>[Math.hypot(num(c.dx,120),num(c.dy,0)), Math.atan2(num(c.dy,0),num(c.dx,120))*180/Math.PI];
+  on('f-llen','change',i=>{ const v=pnum(i.value); if(v>0){ push(); setLine(v/k,lcur()[1]); } commit(); });
+  on('f-lang','change',i=>{ const v=pnum(i.value); if(Number.isFinite(v)){ push(); setLine(lcur()[0],v); } commit(); });
   on('f-dmode','change',i=>{ push(); if(i.value==='r'&&c.mode!=='r') c.rang=dimDir(c); c.mode=i.value; commit(); });
   on('f-drot','change',i=>{ const v=pnum(i.value); if(Number.isFinite(v)){ const d=nang(v-dimDir(c)); if(d){ push(); rotDim(c,d); } } commit(); });
   on('f-dang','change',i=>{ const v=pnum(i.value); if(Number.isFinite(v)){ const d=nang(v-num(c.ang,-40)); if(d){ push(); rotDim(c,d); } } commit(); });
@@ -1257,7 +1293,7 @@ function renderProps(){
       <div class="field"><label for="f-skind">${L('Вид','Kind')}</label><select id="f-skind">${Object.keys(KIND).map(k=>`<option value="${k}"${k===s.kind?' selected':''}>${kindName(k)}</option>`).join('')}</select></div>
       <div class="field"><label for="f-scode">${L('Код в штампе','Code in title block')}</label><input id="f-scode" value="${esc(s.code||'')}" placeholder="${esc(defCode(s)||L('нет','none'))}"></div>
       <p class="muted" style="margin-bottom:6px">${L('В штампе','In title block')}: ${esc(designation(s)||'—')}</p>
-      ${s.kind==='Мх'?`<div class="field"><label for="f-smm">${L('Клетка, мм','Cell, mm')}</label><input id="f-smm" value="${esc(String(sheetMM(s)))}" inputmode="decimal"></div><p class="muted" style="margin-bottom:6px">${L('Сколько миллиметров детали в одной клетке сетки. По этому масштабу считаются все размеры листа. Окружность и размеры — в меню «Механика».','How many millimetres of the part one grid cell stands for. All dimensions on this sheet are computed with it. Circle and dimensions are in the “Mechanics” menu.')}</p>`:''}
+      ${s.kind==='Мх'?`<div class="field"><label for="f-smm">${L('Клетка, мм','Cell, mm')}</label><input id="f-smm" value="${esc(String(sheetMM(s)))}" inputmode="decimal"></div><p class="muted" style="margin-bottom:6px">${L('Сколько миллиметров детали в одной клетке сетки. По этому масштабу считаются все размеры листа. Линии, окружность и размеры — в меню «Механика».','How many millimetres of the part one grid cell stands for. All dimensions on this sheet are computed with it. Lines, circle and dimensions are in the “Mechanics” menu.')}</p>`:''}
       <div class="row"><button id="b-sleft"${sheetNo(s.id)===1?' disabled':''} title="${L('Сдвинуть лист раньше','Move sheet earlier')}">${L('◀ Влево','◀ Left')}</button><button id="b-sright"${sheetNo(s.id)===S.sheets.length?' disabled':''} title="${L('Сдвинуть лист дальше','Move sheet later')}">${L('Вправо ▶','Right ▶')}</button><button id="b-sdel"${S.sheets.length<2?' disabled':''}>${L('✕ Удалить лист','✕ Delete sheet')}</button></div>
       <p class="muted" style="margin-top:4px">${L('Порядок листов можно менять и перетаскиванием вкладок.','Sheets can also be reordered by dragging the tabs.')}</p>
       ${EN()?`<p class="muted" style="margin-top:8px">One device on different sheets — one reference designation. Select a valve, pressure switch or relay and add its second representation on another sheet. Blue links “→ sh.N” under the item lead there.</p>
@@ -1414,6 +1450,7 @@ function addComp(type){
   if(type==='RECT'||MECH.has(type)){ c.ref=''; c.val=''; }
   if(type==='CIRC') c.r=60;
   if(type==='DIML'){ c.dx=120; c.dy=0; c.off=-40; c.mode='h'; c.x=snap(x-60); }
+  if(type==='LINE'){ c.dx=120; c.dy=0; c.ls='main'; c.x=snap(x-60); }
   if(RDIM.has(type)){ c.ang=type==='DIMD'?-40:-20; const o=sel&&sel.k==='c'&&comp(sel.id);
     if(o&&o.type==='CIRC'){ c.of=o.id; c.x=o.x; c.y=o.y; c.r=cr(o);   // к выделенной окружности; второй размер — под другим углом
       if(S.comps.some(q=>q.of===o.id&&q.id!==c.id)) c.ang=c.type==='DIMD'?-140:30; }
@@ -1524,7 +1561,7 @@ svg.addEventListener('pointermove',e=>{
   if(drag.t==='hnd'){ const c=drag.c, lx=x-c.x, ly=y-c.y, h=drag.h, nv={};
     const r5=v=>Math.max(2,Math.round(v/5)*5), deg=()=>Math.round(Math.atan2(ly,lx)*180/Math.PI/5)*5;
     if(c.type==='CIRC'&&h==='r') nv.r=r5(Math.hypot(lx,ly));
-    else if(c.type==='DIML'){
+    else if(c.type==='DIML'||c.type==='LINE'){
       if(h==='p2'){ const q=snapPt(x,y,c.id); nv.dx=q[0]-c.x; nv.dy=q[1]-c.y; }
       else if(h==='p1'){ const q=snapPt(x,y,c.id), ex=c.x+num(c.dx,120), ey=c.y+num(c.dy,0); nv.x=q[0]; nv.y=q[1]; nv.dx=ex-q[0]; nv.dy=ey-q[1]; }
       else if(h==='off'){ const g=dimLGeom(c); nv.off=Math.round((lx*g.nx+ly*g.ny)/5)*5; } }
@@ -1622,7 +1659,7 @@ const GROUPS=[
   [['Пассивные','Passive'],            ['R','C','VD']],
   [['Гидравлика','Hydraulics'],        ['HIN','HOUT','BV','FW','YVH','SPH','BPH','YV']],
   [['Пневматика','Pneumatics'],        ['PIN','POUT','VP','KR','RD','YVP','BPP','BFP']],
-  [['Механика','Mechanics'],          ['CIRC','DIML','DIMD','DIMR']],
+  [['Механика','Mechanics'],          ['LINE','CIRC','DIML','DIMD','DIMR']],
   [['Оформление','Annotation'],        ['NOTE']],
 ];
 { const seen=new Set(GROUPS.flatMap(g=>g[1])), rest=Object.keys(T).filter(k=>!seen.has(k)); if(rest.length) GROUPS.push([['Прочее','Other'],rest]); }
