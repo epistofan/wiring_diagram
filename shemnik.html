@@ -779,6 +779,7 @@ const str=v=>v===undefined||v===null?'':String(v);
 function migrate(d){
   if(!d.stamp||typeof d.stamp!=='object') d.stamp=defStamp();
   if(!d.stamp.people||typeof d.stamp.people!=='object') d.stamp.people={};
+  if(d.stamp.zones!==undefined) d.stamp.zones=!!d.stamp.zones;
   // листы: id только из букв/цифр, вид — из списка
   const sid=new Set();
   d.sheets=(Array.isArray(d.sheets)?d.sheets:[]).filter(s=>s&&ID_RE.test(s.id)&&!sid.has(s.id)&&sid.add(s.id));
@@ -1034,7 +1035,7 @@ function compSVG(c, forExport){
     const items=[];
     if((c.io||isAutoIO(c))&&ioAddr(c)) items.push(['%'+ioAddr(c), null]);
     if(c.ref) S.comps.forEach(o=>{ if(o.id!==c.id&&o.ref===c.ref&&!BOM_SKIP.has(o.type)&&!(CT.has(c.type)&&CT.has(o.type))&&!(c.type==='XT'&&o.type==='XT')){   // у контакта — ссылка на катушку, не на соседние контакты; у клеммы — на клеммник
-      const txt=repLabel(o)+L(' → л.',' → sh.')+sheetNo(sheetOf(o)); if(!items.some(it=>it[0]===txt)) items.push([txt, o.id]); } });
+      const txt=repLabel(o)+' → '+xrefTo(o); if(!items.some(it=>it[0]===txt)) items.push([txt, o.id]); } });
     items.slice(0,4).forEach(([txt,oid],k)=>{
       const side=t.lx!==undefined;
       const [x,y,anc] = vert ? [-18, 26+k*12, 'end']
@@ -1045,7 +1046,7 @@ function compSVG(c, forExport){
   if(EFLAG.has(c.type)&&c.val){
     S.comps.filter(o=>o.id!==c.id&&EFLAG.has(o.type)&&o.val===c.val&&sheetOf(o)!==sheetOf(c)).slice(0,3).forEach((o,k)=>{
       const [x,y,anc]=vert?[-18,18+k*12,'end']:[t.lv[0],22+k*12,'start'];
-      lbl+=`<text class="lbl xr go"${forExport?'':` data-xref="${o.id}"`} x="${x}" y="${y}" text-anchor="${anc}">${o.type==='EIN'?L('ввод','in'):L('выход','out')} → ${L('л.','sh.')}${sheetNo(sheetOf(o))}</text>`; });
+      lbl+=`<text class="lbl xr go"${forExport?'':` data-xref="${o.id}"`} x="${x}" y="${y}" text-anchor="${anc}">${o.type==='EIN'?L('ввод','in'):L('выход','out')} → ${xrefTo(o)}</text>`; });
   }
   // номера выводов у контактов и катушки реле — как на реальной схеме
   if(t.tnTop) t.pins.forEach(([p,px,py])=>{ const [x,y]=rp(px+3,py+12,c.rot);
@@ -1167,6 +1168,7 @@ function dotsSVG(){
 }
 
 function render(){
+  PMAP.clear();
   syncDims();
   AUTOIO = autoIO();
   ROUTES = S.route==='simple' ? null : routeAll();
@@ -1445,13 +1447,15 @@ function buildStampEd(){
     <p class="muted">${L('Одна на весь проект, одинаковая на всех листах (180×36 мм). Лист — рамка по ISO 5457: поле 20 мм слева, 10 мм с остальных сторон, центрирующие метки и сетка зон 50 мм (1…6 × A…D). Лист со своим наименованием или обозначением (в свойствах листа) — отдельный документ, например чертёж детали: в штампе его данные, «Лист 1 / Листов 1».','One for the whole project, the same on every sheet (180×36 mm). The sheet frame follows ISO 5457: 20 mm filing margin on the left, 10 mm on the other sides, centring marks and a 50 mm grid reference system (1…6 × A…D). A sheet with its own title or ident. number (in the sheet properties) is a separate document, e.g. a part drawing: its own data in the title block, sheet 1 of 1.')}</p>${stdSel}</div>`
     : `<div><h2 class="sth">${L('Основная надпись','Title block')} · ГОСТ 2.104</h2>
     <p class="muted">${L('Одна на весь проект. Лист 1 получает форму 1, остальные — форму 2а (185×15 мм). К шифру добавляется код листа (Э3, Г3, П3) — он меняется в свойствах листа. Лист со своим наименованием или обозначением (в свойствах листа) — отдельный документ, например чертёж детали: в штампе его данные, «Лист 1 / Листов 1».','One for the whole project. Sheet 1 gets form 1, the others form 2a (185×15 mm). The sheet code (Э3, Г3, П3) is appended to the designation — it is set in the sheet properties. A sheet with its own title or ident. number (in the sheet properties) is a separate document, e.g. a part drawing: its own data in the title block, sheet 1 of 1.')}</p>${stdSel}
-    <label class="stf" style="flex-direction:row;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="st-full"${st.full?' checked':''}> ${L('полная форма 1 со строками изменений (185×55 мм) — иначе сокращённая 185×30','full form 1 with revision rows (185×55 mm) — otherwise the short 185×30')}</label></div>`;
+    <label class="stf" style="flex-direction:row;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="st-full"${st.full?' checked':''}> ${L('полная форма 1 со строками изменений (185×55 мм) — иначе сокращённая 185×30','full form 1 with revision rows (185×55 mm) — otherwise the short 185×30')}</label>
+    <label class="stf" style="flex-direction:row;align-items:center;gap:8px;margin-top:4px"><input type="checkbox" id="st-zones"${st.zones?' checked':''}> ${L('зоны на полях рамки (1…6 × A…D, клетки 50 мм) — ссылки между листами получают зону: «→ л.3/B4»','zones on the frame margins (1…6 × A…D, 50 mm cells) — cross-references get the zone: “→ sh.3/B4”')}</label></div>`;
   el.innerHTML+=`
     <div class="stgrid">${F.map(([k,l,ph])=>`<label class="stf"><span>${l}</span><input id="st-${k}" value="${esc(st[k]||'')}" placeholder="${esc(ph)}"${k==='litera'?' maxlength="3"':''}></label>`).join('')}</div>
     <table class="stppl"><thead><tr><th></th><th>${L('Фамилия','Name')}</th><th>${L('Дата','Date')}</th></tr></thead><tbody>${roles.map(r=>{ const l=iso?ISO_ROLES[r[0]]:L(r[1],r[2]);
       return `<tr><th scope="row">${l}</th><td><input id="stp-${r[0]}-n" value="${esc(st.people[r[0]]?.n||'')}" aria-label="${l}: ${L('фамилия','name')}"></td><td><input id="stp-${r[0]}-d" value="${esc(st.people[r[0]]?.d||'')}" placeholder="${iso?'YYYY-MM-DD':L('мм.гг','mm.yy')}" aria-label="${l}: ${L('дата','date')}"></td></tr>`; }).join('')}</tbody></table>
     <div class="stprev" id="stprev"></div>`;
   const fu=document.getElementById('st-full'); if(fu) fu.onchange=e=>{ push(); st.full=e.target.checked; previewStamp(); save(); };
+  const zo=document.getElementById('st-zones'); if(zo) zo.onchange=e=>{ push(); if(e.target.checked) st.zones=true; else delete st.zones; previewStamp(); save(); };
   document.getElementById('st-std').onchange=e=>{ const k=setStd(e.target.value); render();
     if(k) toast(L(`Обозначения переименованы: ${k}. Вернуть — «Отменить»`,`Designations renamed: ${k}. Undo reverts`)); };
   el.querySelectorAll('input:not([type=checkbox]):not(select)').forEach(i=>{ i.addEventListener('focus',push,{once:true});
@@ -1771,13 +1775,18 @@ document.getElementById('b-route').onclick=()=>{ push(); S.route = S.route==='si
 // ——— экспорт / импорт ———
 const io=document.getElementById('io'), ioT=document.getElementById('io-text'), ioM=document.getElementById('io-msg');
 const msg=t=>{ioM.textContent=t;};
-function exportSVG(){
+// границы текущего листа при экспорте: элементы с подписями, провода, перечень
+function sheetBounds(){
   let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; const CS=curComps();
   CS.forEach(c=>{ const r=compRect(c); x0=Math.min(x0,c.x-60,r[0]-20);y0=Math.min(y0,c.y-50,r[1]-30);x1=Math.max(x1,c.x+60,r[2]+20);y1=Math.max(y1,c.y+70,r[3]+40);});
   // провода тоже: трассировщик может увести линию за крайние элементы
   curWires().forEach(w=>wirePts(w).forEach(([px,py])=>{x0=Math.min(x0,px-20);y0=Math.min(y0,py-20);x1=Math.max(x1,px+20);y1=Math.max(y1,py+20);}));
   if(!CS.length){x0=y0=0;x1=y1=100;}
   const bg=bomGeom(); if(bg){ x0=Math.min(x0,bg.x-20); y0=Math.min(y0,bg.y-20); x1=Math.max(x1,bg.x+bg.w+20); y1=Math.max(y1,bg.y+bg.h+20); }
+  return [x0,y0,x1,y1];
+}
+function exportSVG(){
+  const [x0,y0,x1,y1]=sheetBounds(), CS=curComps();
   const keep=sel; sel=null;
   const body=curWires().map(w=>wireSVG(w,true)).join('')+dotsSVG()+bomSVG()+compsSVG(CS,true);
   sel=keep;
@@ -1874,6 +1883,33 @@ function docPos(sh){ if(ownDoc(sh)) return {n:1,m:1,first:true};
 const docName = s => { const d=EN()?DOCNAME_EN:DOCNAME; return d[s.kind]||d.С; };
 // ——— ISO 7200: поле идентификации справа (обозначение, изм., дата выпуска, язык, лист), слева — владелец и подписи ———
 const ISO_SW=180, ISO_SH=36;
+// ——— зоны на полях рамки (ISO 5457 всегда, ГОСТ — по галочке в штампе): клетки по 50 мм от центра листа A4,
+// цифры слева направо, буквы (без I и O) сверху вниз; перекрёстные ссылки дописывают зону: «→ л.3/B4» ———
+const ZLET='ABCDEFGHJKLMNPQRSTUVWXYZ';
+const zonesOn=()=>ISO()||!!(S.stamp&&S.stamp.zones);
+const frameMM=()=>ISO()?{fx:20,fy:10,fw:267,fh:190}:{fx:20,fy:5,fw:272,fh:200};
+function zoneCuts(c,a,b,step){ const v=[c]; for(let p=c-step;p>a+step/50;p-=step) v.unshift(p); for(let p=c+step;p<b-step/50;p+=step) v.push(p); return v; }
+// границы клеток в мм листа (297×210)
+function zoneGrid(){ const {fx,fy,fw,fh}=frameMM();
+  return {bx:[fx,...zoneCuts(148.5,fx,fx+fw,50),fx+fw], by:[fy,...zoneCuts(105,fy,fy+fh,50),fy+fh]}; }
+// как схема листа ляжет на A4 при экспорте (повторяет rasterize + sheetCanvas): мировые px → мм листа
+const PMAP=new Map();
+function paperMap(sid){
+  if(PMAP.has(sid)) return PMAP.get(sid);
+  const keep=S.cur; let b; S.cur=sid; try{ b=sheetBounds(); } finally{ S.cur=keep; }
+  const [x0,y0,x1,y1]=b, w=Math.max(1,x1-x0), h=Math.max(1,y1-y0);
+  const s=Math.min(4, MAX_SIDE/w, MAX_SIDE/h, Math.sqrt(MAX_AREA/(w*h))), SW=Math.max(1,Math.round(w*s))/8, SH=Math.max(1,Math.round(h*s))/8;
+  const sh_=S.sheets.find(q=>q.id===sid), {fx,fy,fw,fh}=frameMM();
+  const sth=ISO()?ISO_SH:docPos(sh_).first?(S.stamp.full?55:30):15, aw=fw-10, ah=fh-sth-10, k=Math.min(aw/SW, ah/SH, 1);
+  const ox=fx+5+(aw-SW*k)/2, oy=fy+5+(ah-SH*k)/2, f=s*k/8;
+  const m=(px,py)=>[ox+(px-x0)*f, oy+(py-y0)*f]; PMAP.set(sid,m); return m;
+}
+function zoneOf(c){
+  const r=compRect(c), [mx,my]=paperMap(sheetOf(c))((r[0]+r[2])/2,(r[1]+r[3])/2), {bx,by}=zoneGrid();
+  const idx=(v,a)=>{ for(let i=0;i<a.length-2;i++) if(v<a[i+1]) return i; return a.length-2; };
+  return ZLET[idx(my,by)]+(idx(mx,bx)+1);
+}
+const xrefTo=o=>L('л.','sh.')+sheetNo(sheetOf(o))+(zonesOn()?'/'+zoneOf(o):'');
 function isoStampSVG(sh, n, m, k){
   const st=S.stamp, W=ISO_SW, H=ISO_SH, pp=st.people||{};
   let o=`<svg xmlns="${NS}" viewBox="0 0 ${W} ${H}" width="${W*k}" height="${H*k}" font-family="Arial, Helvetica, sans-serif"><rect width="${W}" height="${H}" fill="#fff"/>`;
@@ -1956,17 +1992,20 @@ function isoFrame(x, d, W, H){
   x.beginPath();   // центрирующие метки: от края листа на 5 мм внутрь рамки
   x.moveTo(cxm,0); x.lineTo(cxm,fy+5*d); x.moveTo(cxm,H); x.lineTo(cxm,fy+fh-5*d);
   x.moveTo(0,cym); x.lineTo(fx+5*d,cym); x.moveTo(W,cym); x.lineTo(fx+fw-5*d,cym); x.stroke();
-  const cuts=(c,a,b)=>{ const v=[c]; for(let p=c-50*d;p>a+1;p-=50*d) v.unshift(p); for(let p=c+50*d;p<b-1;p+=50*d) v.push(p); return v; };
-  const xs=cuts(cxm,fx,fx+fw), ys=cuts(cym,fy,fy+fh), band=5*d;
-  x.lineWidth=0.35*d; x.beginPath();
-  xs.forEach(p=>{ if(Math.abs(p-cxm)<1) return; x.moveTo(p,fy); x.lineTo(p,fy-band); x.moveTo(p,fy+fh); x.lineTo(p,fy+fh+band); });
-  ys.forEach(p=>{ if(Math.abs(p-cym)<1) return; x.moveTo(fx,p); x.lineTo(fx-band,p); x.moveTo(fx+fw,p); x.lineTo(fx+fw+band,p); });
+  drawZones(x,d,true);
+  return {fx,fy,fw,fh};
+}
+// метки и подписи зон на полях вокруг рамки; skipMid — не ставить метку там, где уже центрирующая (ISO)
+function drawZones(x,d,skipMid){
+  const {fx,fy,fw,fh}=frameMM(), {bx,by}=zoneGrid(), band=5;
+  const Lx=(a,b,c,e)=>{ x.moveTo(a*d,b*d); x.lineTo(c*d,e*d); };
+  x.strokeStyle='#000'; x.fillStyle='#000'; x.lineWidth=0.35*d; x.beginPath();
+  bx.slice(1,-1).forEach(p=>{ if(skipMid&&Math.abs(p-148.5)<0.1) return; Lx(p,fy,p,fy-band); Lx(p,fy+fh,p,fy+fh+band); });
+  by.slice(1,-1).forEach(p=>{ if(skipMid&&Math.abs(p-105)<0.1) return; Lx(fx,p,fx-band,p); Lx(fx+fw,p,fx+fw+band,p); });
   x.stroke();
   x.font=`${3.5*d}px Arial, Helvetica, sans-serif`; x.textAlign='center'; x.textBaseline='middle';
-  const bx=[fx,...xs,fx+fw], by=[fy,...ys,fy+fh], LET='ABCDEFGHJKLMNPQRSTUVWXYZ';
-  for(let i=0;i<bx.length-1;i++){ const m=(bx[i]+bx[i+1])/2; x.fillText(String(i+1),m,fy-band/2); x.fillText(String(i+1),m,fy+fh+band/2); }
-  for(let j=0;j<by.length-1;j++){ const m=(by[j]+by[j+1])/2; x.fillText(LET[j],fx-band/2,m); x.fillText(LET[j],fx+fw+band/2,m); }
-  return {fx,fy,fw,fh};
+  for(let i=0;i<bx.length-1;i++){ const m=(bx[i]+bx[i+1])/2*d; x.fillText(String(i+1),m,(fy-band/2)*d); x.fillText(String(i+1),m,(fy+fh+band/2)*d); }
+  for(let j=0;j<by.length-1;j++){ const m=(by[j]+by[j+1])/2*d; x.fillText(ZLET[j],(fx-band/2)*d,m); x.fillText(ZLET[j],(fx+fw+band/2)*d,m); }
 }
 // Лист A4 альбомный: рамка (ГОСТ: поля 20/5 мм; ISO 5457: 20/10 мм с зонами) + штамп в правом нижнем углу + схема в свободном поле
 function sheetCanvas(sch, stImg, first){
@@ -1974,7 +2013,7 @@ function sheetCanvas(sch, stImg, first){
   const x=cv.getContext('2d'); x.fillStyle='#fff'; x.fillRect(0,0,W,H);
   let fx=20*dpmm, fy=5*dpmm, fw=W-25*dpmm, fh=H-10*dpmm;
   if(ISO()) ({fx,fy,fw,fh}=isoFrame(x,dpmm,W,H));
-  else { x.strokeStyle='#000'; x.lineWidth=0.5*dpmm; x.strokeRect(fx,fy,fw,fh); }
+  else { x.strokeStyle='#000'; x.lineWidth=0.5*dpmm; x.strokeRect(fx,fy,fw,fh); if(S.stamp.zones) drawZones(x,dpmm,false); }
   const sw=(ISO()?ISO_SW:185)*dpmm, sh=(ISO()?ISO_SH:first?(S.stamp.full?55:30):15)*dpmm, sx=fx+fw-sw, sy=fy+fh-sh;
   if(stImg) x.drawImage(stImg,sx,sy,sw,sh);
   const aw=fw-10*dpmm, ah=fh-sh-10*dpmm, k=Math.min(aw/sch.width, ah/sch.height, 1);
