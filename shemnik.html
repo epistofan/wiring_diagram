@@ -98,7 +98,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-r
 .comp.sel .sym{stroke:var(--accent)} .comp.sel .sym .fill{fill:var(--accent)}
 .comp .hit{fill:transparent;stroke:none;cursor:move}
 .comp .hit.fr{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke}
-.sym .thin{stroke-width:1}
+.sym .thin{stroke-width:var(--thin,1px)}
 .lbl{font-family:var(--mono);font-size:12px;fill:var(--ink);pointer-events:none}
 .lbl.v{fill:var(--muted);font-size:11px}
 .pinv{fill:var(--sheet);stroke:var(--pin);stroke-width:1.5;pointer-events:none}
@@ -416,22 +416,22 @@ const T = {
   // ——— механика (лист «Мх», ГОСТ 2.303 линии, ГОСТ 2.307 размеры): геометрия — у экземпляра, d и box здесь — только для иконки ———
   CIRC:{name:'Окружность', pre:'', val:'', k:'Мх', pins:[], box:[-22,-22,44,44], noLabel:true, noIo:true,
         d:'<circle cx="0" cy="0" r="16"/><path class="thin" d="M-22 0H22M0 -22V22" stroke-dasharray="8 2 1 2"/>',
-        dyn:Object.assign(c=>circLayout(c),{key:c=>JSON.stringify([c.r,c.ax])})},
+        dyn:Object.assign(c=>circLayout(c),{key:c=>JSON.stringify([c.r,c.ax])+mechKey(c)})},
   RECTM:{name:'Прямоугольник / квадрат', pre:'', val:'', k:'Мх', pins:[], box:[-24,-18,48,36], noLabel:true, noIo:true,
         d:'<rect x="-20" y="-14" width="40" height="28"/><path class="thin" d="M-24 0H24M0 -18V18" stroke-dasharray="8 2 1 2"/>',
-        dyn:Object.assign(c=>rectMLayout(c),{key:c=>JSON.stringify([c.w,c.h,c.rx,c.ls,c.ax])})},
+        dyn:Object.assign(c=>rectMLayout(c),{key:c=>JSON.stringify([c.w,c.h,c.rx,c.ls,c.ax])+mechKey(c)})},
   LINE:{name:'Линия', pre:'', val:'', k:'Мх', pins:[], box:[-32,-14,64,28], noLabel:true, noIo:true,
         d:'<path d="M-30 -8H30"/><path class="thin" d="M-30 8H30" stroke-dasharray="8 4"/>',
-        dyn:Object.assign(c=>lineLayout(c),{key:c=>JSON.stringify([c.dx,c.dy,c.ls,c.ends])})},
+        dyn:Object.assign(c=>lineLayout(c),{key:c=>JSON.stringify([c.dx,c.dy,c.ls,c.ends])+mechKey(c)})},
   DIML:{name:'Размер линейный', pre:'', val:'', k:'Мх', pins:[], box:[-32,-24,64,36], noLabel:true, noIo:true,
         d:'<path class="thin" d="M-30 10V-16M30 10V-16M-30 -8H30"/><path class="fill thin" d="M-30 -8l9 -3v6zM30 -8l-9 -3v6z"/><text x="0" y="-12" text-anchor="middle" class="fill" style="stroke:none;font:italic 11px sans-serif">50</text>',
-        dyn:Object.assign(c=>dimLLayout(c),{key:c=>JSON.stringify([c.dx,c.dy,c.off,c.mode,c.rang,c.val,c.tol,mmPP(c),LANG])})},
+        dyn:Object.assign(c=>dimLLayout(c),{key:c=>JSON.stringify([c.dx,c.dy,c.off,c.mode,c.rang,c.val,c.tol])+mechKey(c)})},
   DIMD:{name:'Размер Ø', pre:'', val:'', k:'Мх', pins:[], box:[-24,-24,48,48], noLabel:true, noIo:true,
         d:'<circle cx="0" cy="0" r="16" style="opacity:.45"/><path class="thin" d="M-11.3 11.3L22 -22"/><path class="fill thin" d="M11.3 -11.3l-8.5 2.1l4.2 4.2zM-11.3 11.3l8.5 -2.1l-4.2 -4.2z"/>',
-        dyn:Object.assign(c=>dimRLayout(c,true),{key:c=>JSON.stringify([c.r,c.ang,c.of,c.val,c.tol,mmPP(c),LANG])})},
+        dyn:Object.assign(c=>dimRLayout(c,true),{key:c=>JSON.stringify([c.r,c.ang,c.of,c.val,c.tol])+mechKey(c)})},
   DIMR:{name:'Размер R', pre:'', val:'', k:'Мх', pins:[], box:[-24,-24,48,48], noLabel:true, noIo:true,
         d:'<circle cx="0" cy="0" r="16" style="opacity:.45"/><path class="thin" d="M0 0L22 -22"/><path class="fill thin" d="M11.3 -11.3l-8.5 2.1l4.2 4.2z"/>',
-        dyn:Object.assign(c=>dimRLayout(c,false),{key:c=>JSON.stringify([c.r,c.ang,c.of,c.val,c.tol,mmPP(c),LANG])})},
+        dyn:Object.assign(c=>dimRLayout(c,false),{key:c=>JSON.stringify([c.r,c.ang,c.of,c.val,c.tol])+mechKey(c)})},
 };
 
 // вид листа: Э — электрическая, Г — гидравлическая, С — совмещённая (всё, кроме раздельных представлений)
@@ -617,59 +617,74 @@ function noteLayout(c){
   return {box:[0,-h-2,w,h+4], d, tip:lead==='none'?null:[tx,ty]};
 }
 // ——— механика: окружность и размеры ———
-// Масштаб листа «Мх»: s.mm — сколько миллиметров в одной клетке сетки (20 px); размеры считаются по нему
+// Масштаб листа «Мх»: s.mm — сколько миллиметров в одной клетке сетки (20 px); размеры считаются по нему.
+// Оформление — в миллиметрах чертежа, поэтому при любом масштабе листа выглядит одинаково относительно детали:
+// s.th — высота цифр размеров (ГОСТ 2.304, по умолчанию 5 мм), s.sw — толщина основной линии s (ГОСТ 2.303, по умолчанию 1 мм).
 const MECH=new Set(['CIRC','RECTM','LINE','DIML','DIMD','DIMR']), RDIM=new Set(['DIMD','DIMR']);
 const sheetMM=s=>s&&+s.mm>0?+s.mm:10;
-const mmPP=c=>sheetMM(S&&S.sheets.find(s=>s.id===(c.sheet||S.sheets[0].id)))/G;   // мм на 1 px
+const shTH=s=>s&&+s.th>0?+s.th:5, shSW=s=>s&&+s.sw>0?+s.sw:1;
+const sheetOfC=c=>S&&S.sheets.find(s=>s.id===(c.sheet||S.sheets[0].id));
+const mmPP=c=>sheetMM(sheetOfC(c))/G;   // мм на 1 px
+// размеры оформления в px: th — высота цифр, sw — основная линия, lf — множитель штрихов и мелочей (1 при s = 2 px)
+function mk(c){ const s=sheetOfC(c), pp=sheetMM(s)/G, th=shTH(s)/pp, sw=shSW(s)/pp; return {pp, th, sw, lf:sw/2}; }
+const mechKey=c=>JSON.stringify(mk(c))+LANG;
+const r2=v=>Math.round(v*100)/100;
+// группа с толщинами листа: основная — stroke-width, тонкая (s/2) — через --thin у класса .thin
+const mg=(d,m)=>`<g style="--thin:${r2(m.sw/2)}px;stroke-width:${r2(m.sw)}px">${d}</g>`;
+const dsh=(a,m)=>a.map(v=>r2(v*m.lf)).join(' ');
 // число для надписи: до 0,01 мм, в русском интерфейсе — с запятой (ГОСТ 2.307)
 const fmtMM=v=>{ const s=String(Math.round(v*100)/100); return EN()?s:s.replace('.',','); };
-const cr=c=>Math.max(2,Math.min(4000,num(c.r,60)));
+const cr=c=>Math.max(0.5,Math.min(40000,num(c.r,60)));
 const dimTxt=(c,auto)=>(c.val&&c.val.trim()?c.val.trim():auto)+(c.tol?c.tol:'');
-const DTXT='stroke:none;font:italic 13px "IBM Plex Sans Condensed",Arial,sans-serif';
-const twOf=s=>s.length*7+4;
-// стрелка размера: острие в (x,y), смотрит по направлению (ux,uy); длина 10, ширина 6 (≈ ГОСТ 2.307 при масштабе экрана)
-const arrowD=(x,y,ux,uy)=>{ const bx=x-ux*10, by=y-uy*10; return `M${x} ${y}L${bx-uy*3} ${by+ux*3}L${bx+uy*3} ${by-ux*3}Z`; };
+const fsz=m=>r2(m.th*1.35);   // кегль шрифта ≈ высота прописной / 0,74
+const twOf=(s,m)=>s.length*0.73*m.th+0.4*m.th;
+// стрелка размера: острие в (x,y), смотрит по направлению (ux,uy); длина — высота цифр, ширина — 0,6 от неё
+const arrowD=(x,y,ux,uy,m)=>{ const L_=m.th, w=0.3*m.th, bx=x-ux*L_, by=y-uy*L_; return `M${r2(x)} ${r2(y)}L${r2(bx-uy*w)} ${r2(by+ux*w)}L${r2(bx+uy*w)} ${r2(by-ux*w)}Z`; };
 // текст вдоль направления u, «над» линией и всегда читаемый (не вверх ногами)
-function dimLabel(mx,my,ux,uy,txt){ let a=Math.atan2(uy,ux)*180/Math.PI; if(a>90.01) a-=180; else if(a<=-90.01) a+=180;
-  return `<text class="fill" transform="translate(${mx} ${my}) rotate(${Math.round(a*100)/100})" y="-5" text-anchor="middle" style="${DTXT}">${esc(txt)}</text>`; }
+function dimLabel(mx,my,ux,uy,txt,m){ let a=Math.atan2(uy,ux)*180/Math.PI; if(a>90.01) a-=180; else if(a<=-90.01) a+=180;
+  return `<text class="fill" transform="translate(${r2(mx)} ${r2(my)}) rotate(${r2(a)})" y="${r2(-0.5*m.th)}" text-anchor="middle" style="stroke:none;font:italic ${fsz(m)}px &quot;IBM Plex Sans Condensed&quot;,Arial,sans-serif">${esc(txt)}</text>`; }
 function bboxOf(pts,pad){ const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]), x0=Math.min(...xs)-pad, y0=Math.min(...ys)-pad;
   return [x0,y0,Math.max(...xs)+pad-x0,Math.max(...ys)+pad-y0]; }
-// окружность: основная линия; осевые (штрихпунктир) выходят за контур на 10 px; ручка радиуса — под 45°
+// общие поля раскладки: ручки и полоса захвата — в размер оформления, чтобы при мелком масштабе ими было удобно пользоваться
+const mx_=(m,o)=>Object.assign(o,{hr:Math.max(6,0.6*m.th), hw:Math.max(14,1.4*m.th)});
+// окружность: основная линия; осевые (штрихпунктир) выходят за контур; ручка радиуса — под 45°
 function circLayout(c){
-  const r=cr(c), e=r+Math.max(8,Math.min(20,r*0.25)), k=r*Math.SQRT1_2;
+  const m=mk(c), r=cr(c), e=r+Math.max(8*m.lf,Math.min(20*m.lf,r*0.25)), k=r*Math.SQRT1_2;
   let d=`<circle cx="0" cy="0" r="${r}"/>`;
-  if(c.ax!==false) d+=`<path class="thin" d="M${-e} 0H${e}M0 ${-e}V${e}" stroke-dasharray="${r<15?'6 2 1 2':'16 3 2 3'}"/>`;
-  return {d, box:[-e,-e,2*e,2*e], hitd:`M${r} 0A${r} ${r} 0 1 0 ${-r} 0A${r} ${r} 0 1 0 ${r} 0`+(c.ax!==false?`M${-e} 0H${e}M0 ${-e}V${e}`:'')+'M-6 0H6M0 -6V6',
-    hs:[['r',k,-k,L('Радиус','Radius')]]};
+  if(c.ax!==false) d+=`<path class="thin" d="M${-e} 0H${e}M0 ${-e}V${e}" stroke-dasharray="${dsh(r<15*m.lf?[6,2,1,2]:[16,3,2,3],m)}"/>`;
+  const q=4*m.lf;
+  return mx_(m,{d:mg(d,m), box:[-e,-e,2*e,2*e], hitd:`M${r} 0A${r} ${r} 0 1 0 ${-r} 0A${r} ${r} 0 1 0 ${r} 0`+(c.ax!==false?`M${-e} 0H${e}M0 ${-e}V${e}`:'')+`M${-q} 0H${q}M0 ${-q}V${q}`,
+    hs:[['r',k,-k,L('Радиус','Radius')]]});
 }
-// линия: p1 — точка элемента (0,0), p2 — (dx,dy); тип по ГОСТ 2.303 (s = 2 px), на концах — стрелки по выбору
+// линия: p1 — точка элемента (0,0), p2 — (dx,dy); тип по ГОСТ 2.303, на концах — стрелки по выбору
 const LTYPES=[['main','Сплошная основная','Solid thick'],['thin','Сплошная тонкая','Solid thin'],['wavy','Сплошная волнистая','Freehand (wavy)'],
   ['dash','Штриховая','Dashed'],['chain','Штрихпунктирная тонкая','Chain thin'],['chainb','Штрихпунктирная утолщённая','Chain thick'],
   ['chain2','Штрихпунктирная с двумя точками','Chain double-dashed'],['open','Разомкнутая','Cutting plane'],['zig','Сплошная тонкая с изломами','Thin with zigzags']];
-const LSTY={main:'', thin:' class="thin"', dash:' class="thin" stroke-dasharray="8 4" stroke-linecap="butt"', chain:' class="thin" stroke-dasharray="16 3 2 3" stroke-linecap="butt"',
-  chainb:' style="stroke-width:1.5" stroke-dasharray="12 3 2 3" stroke-linecap="butt"', chain2:' class="thin" stroke-dasharray="16 3 2 3 2 3" stroke-linecap="butt"'};
+function lsty(ls,m){ const b=' stroke-linecap="butt"';
+  return ({thin:' class="thin"', dash:` class="thin" stroke-dasharray="${dsh([8,4],m)}"${b}`, chain:` class="thin" stroke-dasharray="${dsh([16,3,2,3],m)}"${b}`,
+    chainb:` style="stroke-width:${r2(m.sw*0.75)}px" stroke-dasharray="${dsh([12,3,2,3],m)}"${b}`, chain2:` class="thin" stroke-dasharray="${dsh([16,3,2,3,2,3],m)}"${b}`})[ls]||''; }
 function lineLayout(c){
-  const dx=num(c.dx,120), dy=num(c.dy,0), l=Math.hypot(dx,dy), ux=l>0.5?dx/l:1, uy=l>0.5?dy/l:0, nx=-uy, ny=ux, ls=c.ls||'main';
+  const m=mk(c), f=m.lf, dx=num(c.dx,120), dy=num(c.dy,0), l=Math.hypot(dx,dy), ux=l>0.5?dx/l:1, uy=l>0.5?dy/l:0, nx=-uy, ny=ux, ls=c.ls||'main';
   const P=(t,o=0)=>`${r2(t*ux+o*nx)} ${r2(t*uy+o*ny)}`;
   let d;
-  if(ls==='wavy'){ let q=`M0 0`; for(let t=2;t<l;t+=2) q+=`L${P(t,3*Math.sin(t/16*2*Math.PI))}`; d=`<path class="thin" d="${q}L${P(l)}"/>`; }
-  else if(ls==='zig'){ const m=l/2; d=`<path class="thin" d="M0 0L${P(m-6)}L${P(m-2,7)}L${P(m+2,-7)}L${P(m+6)}L${P(l)}"/>`; }
-  else if(ls==='open'){ const k=Math.min(20,l/3); d=`<path style="stroke-width:3" stroke-linecap="butt" d="M0 0L${P(k)}M${P(l-k)}L${P(l)}"/>`; }
-  else d=`<path${LSTY[ls]||''} d="M0 0L${P(l)}"/>`;
+  if(ls==='wavy'){ let q=`M0 0`; const st=2*f; for(let t=st;t<l;t+=st) q+=`L${P(t,3*f*Math.sin(t/(16*f)*2*Math.PI))}`; d=`<path class="thin" d="${q}L${P(l)}"/>`; }
+  else if(ls==='zig'){ const h=l/2; d=`<path class="thin" d="M0 0L${P(h-6*f)}L${P(h-2*f,7*f)}L${P(h+2*f,-7*f)}L${P(h+6*f)}L${P(l)}"/>`; }
+  else if(ls==='open'){ const k=Math.min(20*f,l/3); d=`<path style="stroke-width:${r2(m.sw*1.5)}px" stroke-linecap="butt" d="M0 0L${P(k)}M${P(l-k)}L${P(l)}"/>`; }
+  else d=`<path${lsty(ls,m)} d="M0 0L${P(l)}"/>`;
   const e=c.ends||'';
-  if(e) d+=`<path class="fill thin" d="${arrowD(dx,dy,ux,uy)}${e==='both'?arrowD(0,0,-ux,-uy):''}"/>`;
-  return {d, box:bboxOf([[0,0],[dx,dy]],10), hitd:`M0 0L${dx} ${dy}`, hs:[['p1',0,0,L('Начало','Start')],['p2',dx,dy,L('Конец','End')]]};
+  if(e) d+=`<path class="fill thin" d="${arrowD(dx,dy,ux,uy,m)}${e==='both'?arrowD(0,0,-ux,-uy,m):''}"/>`;
+  return mx_(m,{d:mg(d,m), box:bboxOf([[0,0],[dx,dy]],Math.max(10,m.th)), hitd:`M0 0L${dx} ${dy}`, hs:[['p1',0,0,L('Начало','Start')],['p2',dx,dy,L('Конец','End')]]});
 }
 // прямоугольник: (0,0) — левый верхний угол, w×h; ручки на углах и серединах сторон двигают только свою сторону
 const RLT=['main','thin','dash','chain','chainb','chain2'];
-const rmW=c=>Math.max(2,num(c.w,120)), rmH=c=>Math.max(2,num(c.h,80));
+const rmW=c=>Math.max(0.5,num(c.w,120)), rmH=c=>Math.max(0.5,num(c.h,80));
 function rectMLayout(c){
-  const w=rmW(c), h=rmH(c), rx=Math.max(0,Math.min(num(c.rx,0),w/2,h/2)), ls=RLT.includes(c.ls)?c.ls:'main', e=Math.max(8,Math.min(20,Math.min(w,h)*0.15));
-  let d=`<rect x="0" y="0" width="${w}" height="${h}"${rx?` rx="${rx}"`:''}${LSTY[ls]||''}/>`;
+  const m=mk(c), w=rmW(c), h=rmH(c), rx=Math.max(0,Math.min(num(c.rx,0),w/2,h/2)), ls=RLT.includes(c.ls)?c.ls:'main', e=Math.max(8*m.lf,Math.min(20*m.lf,Math.min(w,h)*0.15));
+  let d=`<rect x="0" y="0" width="${w}" height="${h}"${rx?` rx="${rx}"`:''}${lsty(ls,m)}/>`;
   const axd=`M${-e} ${h/2}H${w+e}M${w/2} ${-e}V${h+e}`;
-  if(c.ax) d+=`<path class="thin" d="${axd}" stroke-dasharray="16 3 2 3"/>`;
+  if(c.ax) d+=`<path class="thin" d="${axd}" stroke-dasharray="${dsh([16,3,2,3],m)}"/>`;
   const hs=[['nw',0,0],['n',w/2,0],['ne',w,0],['e',w,h/2],['se',w,h],['s',w/2,h],['sw',0,h],['w',0,h/2]].map(([k,x,y])=>[k,x,y,L('Тяни — меняется эта сторона','Drag to move this side')]);
-  return {d, box:bboxOf([[0,0],[w,h]],c.ax?e+2:6), hitd:`M0 0H${w}V${h}H0Z`+(c.ax?axd:''), hs};
+  return mx_(m,{d:mg(d,m), box:bboxOf([[0,0],[w,h]],Math.max(c.ax?e+2:6,m.sw*3,0.6*m.th)), hitd:`M0 0H${w}V${h}H0Z`+(c.ax?axd:''), hs});
 }
 // линейный размер: p1 — точка элемента (0,0), p2 — (dx,dy); off — вынос размерной линии от p1 по нормали;
 // mode: h — горизонтальный, v — вертикальный, al — параллельный отрезку, r — повёрнутый (направление измерения rang°)
@@ -683,40 +698,42 @@ function dimLGeom(c){
   return {dx,dy,ux,uy,nx,ny,a,b,len:Math.abs(dx*ux+dy*uy),mode};
 }
 function dimLLayout(c){
-  const g=dimLGeom(c), {a,b,ux,uy}=g, txt=dimTxt(c,fmtMM(g.len*mmPP(c)));
-  const ext=(p,q)=>{ const ex=q[0]-p[0], ey=q[1]-p[1], l=Math.hypot(ex,ey); if(l<4) return ''; const kx=ex/l, ky=ey/l;
-    return `M${p[0]+kx*3} ${p[1]+ky*3}L${q[0]+kx*8} ${q[1]+ky*8}`; };
+  const m=mk(c), T_=m.th, g=dimLGeom(c), {a,b,ux,uy}=g, txt=dimTxt(c,fmtMM(g.len*m.pp));
+  // выносные: зазор от детали 0,3·h, выход за размерную линию 0,8·h (ГОСТ 2.307: 1…5 мм)
+  const ext=(p,q)=>{ const ex=q[0]-p[0], ey=q[1]-p[1], l=Math.hypot(ex,ey); if(l<0.4*T_) return ''; const kx=ex/l, ky=ey/l;
+    return `M${r2(p[0]+kx*0.3*T_)} ${r2(p[1]+ky*0.3*T_)}L${r2(q[0]+kx*0.8*T_)} ${r2(q[1]+ky*0.8*T_)}`; };
   const ab=Math.hypot(b[0]-a[0],b[1]-a[1]), dx=ab>0.5?(b[0]-a[0])/ab:ux, dy=ab>0.5?(b[1]-a[1])/ab:uy;
-  const inside=ab>=30;   // мало места — стрелки снаружи, размерная линия продлевается
-  const l0=inside?a:[a[0]-dx*16,a[1]-dy*16], l1=inside?b:[b[0]+dx*16,b[1]+dy*16];
-  let d=`<path class="thin" d="${ext([0,0],a)}${ext([g.dx,g.dy],b)}M${l0[0]} ${l0[1]}L${l1[0]} ${l1[1]}"/>`;
-  d+=`<path class="fill thin" d="${inside?arrowD(a[0],a[1],-dx,-dy)+arrowD(b[0],b[1],dx,dy):arrowD(a[0],a[1],dx,dy)+arrowD(b[0],b[1],-dx,-dy)}"/>`;
+  const inside=ab>=3*T_;   // мало места — стрелки снаружи, размерная линия продлевается
+  const l0=inside?a:[a[0]-dx*1.6*T_,a[1]-dy*1.6*T_], l1=inside?b:[b[0]+dx*1.6*T_,b[1]+dy*1.6*T_];
+  const dl=`M${r2(l0[0])} ${r2(l0[1])}L${r2(l1[0])} ${r2(l1[1])}`;
+  let d=`<path class="thin" d="${ext([0,0],a)}${ext([g.dx,g.dy],b)}${dl}"/>`;
+  d+=`<path class="fill thin" d="${inside?arrowD(a[0],a[1],-dx,-dy,m)+arrowD(b[0],b[1],dx,dy,m):arrowD(a[0],a[1],dx,dy,m)+arrowD(b[0],b[1],-dx,-dy,m)}"/>`;
   const mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2;
-  d+=dimLabel(mx,my,dx,dy,txt);
-  const tw=twOf(txt)/2+4;
-  const box=bboxOf([[0,0],[g.dx,g.dy],l0,l1,[mx-tw,my-22],[mx+tw,my+6]],8);
-  return {d, box, hitd:`${ext([0,0],a)}${ext([g.dx,g.dy],b)}M${l0[0]} ${l0[1]}L${l1[0]} ${l1[1]}`,
-    hs:[['p1',0,0,L('Начало','Start')],['p2',g.dx,g.dy,L('Конец','End')],['off',mx,my,L('Вынос размерной линии','Dimension line offset')]]};
+  d+=dimLabel(mx,my,dx,dy,txt,m);
+  const tw=twOf(txt,m)/2+0.4*T_;
+  const box=bboxOf([[0,0],[g.dx,g.dy],l0,l1,[mx-tw,my-2.2*T_],[mx+tw,my+0.6*T_]],Math.max(8,0.8*T_));
+  return mx_(m,{d:mg(d,m), box, hitd:`${ext([0,0],a)}${ext([g.dx,g.dy],b)}${dl}`,
+    hs:[['p1',0,0,L('Начало','Start')],['p2',g.dx,g.dy,L('Конец','End')],['off',mx,my,L('Вынос размерной линии','Dimension line offset')]]});
 }
 // диаметр и радиус: размерная линия через центр (Ø) или от центра (R) под углом ang, полка с надписью — снаружи окружности
 function dimRLayout(c, dia){
-  const r=cr(c), a=num(c.ang,-40)*Math.PI/180, ux=Math.cos(a), uy=Math.sin(a);
-  const txt=dimTxt(c,(dia?'⌀':'R')+fmtMM((dia?2*r:r)*mmPP(c))), tw=twOf(txt), e=r+12+tw;
+  const m=mk(c), T_=m.th, r=cr(c), a=num(c.ang,-40)*Math.PI/180, ux=Math.cos(a), uy=Math.sin(a);
+  const txt=dimTxt(c,(dia?'⌀':'R')+fmtMM((dia?2*r:r)*m.pp)), tw=twOf(txt,m), e=r+1.2*T_+tw;
   const p0=dia?[-ux*r,-uy*r]:[0,0], p1=[ux*e,uy*e];
-  let d=`<path class="thin" d="M${p0[0]} ${p0[1]}L${p1[0]} ${p1[1]}"/>`;
-  d+=`<path class="fill thin" d="${arrowD(ux*r,uy*r,ux,uy)}${dia?arrowD(-ux*r,-uy*r,-ux,-uy):''}"/>`;
-  d+=dimLabel(ux*(r+8+tw/2),uy*(r+8+tw/2),ux,uy,txt);
-  if(!dia) d+=`<circle cx="0" cy="0" r="1.8" class="fill"/>`;
+  let d=`<path class="thin" d="M${r2(p0[0])} ${r2(p0[1])}L${r2(p1[0])} ${r2(p1[1])}"/>`;
+  d+=`<path class="fill thin" d="${arrowD(ux*r,uy*r,ux,uy,m)}${dia?arrowD(-ux*r,-uy*r,-ux,-uy,m):''}"/>`;
+  d+=dimLabel(ux*(r+0.8*T_+tw/2),uy*(r+0.8*T_+tw/2),ux,uy,txt,m);
+  if(!dia) d+=`<circle cx="0" cy="0" r="${r2(Math.max(1.8,0.18*T_))}" class="fill"/>`;
   const hs=[['a',p1[0],p1[1],L('Угол размерной линии','Dimension line angle')]];
   if(!c.of) hs.push(['r',dia?-ux*r:ux*r,dia?-uy*r:uy*r,L('Радиус','Radius')]);
-  return {d, box:bboxOf([p0,p1,[0,0]],16), hitd:`M${p0[0]} ${p0[1]}L${p1[0]} ${p1[1]}`, hs};
+  return mx_(m,{d:mg(d,m), box:bboxOf([p0,p1,[0,0]],Math.max(16,1.6*T_)), hitd:`M${r2(p0[0])} ${r2(p0[1])}L${r2(p1[0])} ${r2(p1[1])}`, hs});
 }
 // размер Ø/R, привязанный к окружности (c.of): стоит в её центре и берёт её радиус
 function syncDims(){ S.comps.forEach(c=>{ if(!RDIM.has(c.type)||!c.of) return; const o=comp(c.of);
   if(o&&o.type==='CIRC'&&sheetOf(o)===sheetOf(c)){ c.x=o.x; c.y=o.y; c.r=cr(o); } else delete c.of; }); }
 // поворот размера на th° (по часовой, как у элементов): линейный — целиком вокруг середины измеряемого отрезка,
 // Ø/R — размерная линия вокруг центра. Кратные 90° снова дают горизонтальный/вертикальный, прочие — повёрнутый.
-const r2=v=>Math.round(v*100)/100, nang=a=>{ a=r2(((a%360)+360)%360); return a>180?a-360:a; };
+const nang=a=>{ a=r2(((a%360)+360)%360); return a>180?a-360:a; };
 const dimDir=c=>{ const g=dimLGeom(c); return nang(Math.atan2(g.uy,g.ux)*180/Math.PI); };
 function rotDim(c,th){
   if(RDIM.has(c.type)){ c.ang=nang(num(c.ang,-40)+th); return; }
@@ -765,7 +782,7 @@ function migrate(d){
   // листы: id только из букв/цифр, вид — из списка
   const sid=new Set();
   d.sheets=(Array.isArray(d.sheets)?d.sheets:[]).filter(s=>s&&ID_RE.test(s.id)&&!sid.has(s.id)&&sid.add(s.id));
-  d.sheets.forEach(s=>{ if(!KIND[s.kind]) s.kind='С'; s.name=str(s.name); if(s.code!==undefined) s.code=str(s.code); if(s.mm!==undefined){ s.mm=num(s.mm,10); if(!(s.mm>0)) delete s.mm; } });
+  d.sheets.forEach(s=>{ if(!KIND[s.kind]) s.kind='С'; s.name=str(s.name); if(s.code!==undefined) s.code=str(s.code); ['mm','th','sw'].forEach(k=>{ if(s[k]!==undefined){ s[k]=num(s[k],0); if(!(s[k]>0)) delete s[k]; } }); });
   if(!d.sheets.length) d.sheets=[{id:'s1',name:L('Лист 1','Sheet 1'),kind:'С'}];
   d.std=d.std==='iso'?'iso':'gost';
   if(!d.sheets.some(s=>s.id===d.cur)) d.cur=d.sheets[0].id;
@@ -1039,7 +1056,7 @@ function compSVG(c, forExport){
   // сноска: ручка на кончике выноски (только у выделенной)
   if(c.type==='NOTE'&&s&&!forExport&&t.tip) lbl+=`<circle class="tiph" data-tip="${c.id}" cx="${t.tip[0]}" cy="${t.tip[1]}" r="7"/>`;
   // механика: ручки геометрии (радиус, концы размера, вынос, угол) — только у выделенного
-  if(t.hs&&s&&!forExport) t.hs.forEach(([k,hx,hy,tt])=>{ lbl+=`<circle class="tiph" data-hnd="${c.id}|${k}" cx="${hx}" cy="${hy}" r="6"><title>${esc(tt)}</title></circle>`; });
+  if(t.hs&&s&&!forExport) t.hs.forEach(([k,hx,hy,tt])=>{ lbl+=`<circle class="tiph" data-hnd="${c.id}|${k}" cx="${hx}" cy="${hy}" r="${t.hr||6}" style="stroke-width:${r2((t.hr||6)/3)}px"><title>${esc(tt)}</title></circle>`; });
   // контроллер: ручка размера в углу корпуса (вбок — ширина, вниз — шаг выводов)
   if(t.rsz&&s&&!forExport){ const [hx,hy]=rp(t.rsz[0],t.rsz[1],c.rot);
     lbl+=`<rect class="rszh" data-rsz="${c.id}" x="${hx-7}" y="${hy-7}" width="14" height="14" rx="2"><title>${L('Тяни: вбок — ширина корпуса, вниз — шаг выводов','Drag: sideways — body width, down — pin pitch')}</title></rect>`; }
@@ -1050,7 +1067,7 @@ function compSVG(c, forExport){
     pins+=`<circle class="pinv ${pc}" cx="${x}" cy="${y}" r="3.5"/><circle class="pinhit" data-pin="${key}" cx="${x}" cy="${y}" r="10"/>`;
   });
   const [bx,by,bw,bh]=t.box;
-  return `<g class="comp ${s?'sel':''}" data-comp="${c.id}" transform="translate(${c.x} ${c.y})"><g transform="rotate(${c.rot})">${forExport?'':t.hitd?`<path class="hit fr" d="${t.hitd}"/>`:`<rect class="hit${t.frame?' fr':''}" x="${bx}" y="${by}" width="${bw}" height="${bh}"/>`}<g class="sym">${t.d}</g></g>${lbl}${pins}</g>`;
+  return `<g class="comp ${s?'sel':''}" data-comp="${c.id}" transform="translate(${c.x} ${c.y})"><g transform="rotate(${c.rot})">${forExport?'':t.hitd?`<path class="hit fr" d="${t.hitd}"${t.hw?` style="stroke-width:${r2(t.hw)}px"`:''}/>`:`<rect class="hit${t.frame?' fr':''}" x="${bx}" y="${by}" width="${bw}" height="${bh}"/>`}<g class="sym">${t.d}</g></g>${lbl}${pins}</g>`;
 }
 function wireSVG(w, forExport){
   const pts=wirePts(w).map(p=>p.join(',')).join(' ');
@@ -1321,7 +1338,9 @@ function renderProps(){
       <div class="field"><label for="f-skind">${L('Вид','Kind')}</label><select id="f-skind">${Object.keys(KIND).map(k=>`<option value="${k}"${k===s.kind?' selected':''}>${kindName(k)}</option>`).join('')}</select></div>
       <div class="field"><label for="f-scode">${L('Код в штампе','Code in title block')}</label><input id="f-scode" value="${esc(s.code||'')}" placeholder="${esc(defCode(s)||L('нет','none'))}"></div>
       <p class="muted" style="margin-bottom:6px">${L('В штампе','In title block')}: ${esc(designation(s)||'—')}</p>
-      ${s.kind==='Мх'?`<div class="field"><label for="f-smm">${L('Клетка, мм','Cell, mm')}</label><input id="f-smm" value="${esc(String(sheetMM(s)))}" inputmode="decimal"></div><p class="muted" style="margin-bottom:6px">${L('Сколько миллиметров детали в одной клетке сетки. По этому масштабу считаются все размеры листа. Линии, прямоугольники, окружности и размеры — в меню «Механика».','How many millimetres of the part one grid cell stands for. All dimensions on this sheet are computed with it. Lines, rectangles, circles and dimensions are in the “Mechanics” menu.')}</p>`:''}
+      ${s.kind==='Мх'?`<div class="field"><label for="f-smm">${L('Клетка, мм','Cell, mm')}</label><input id="f-smm" value="${esc(String(sheetMM(s)))}" inputmode="decimal"></div>
+      <div class="field"><label for="f-sth">${L('Цифры, мм','Digits, mm')}</label><select id="f-sth">${[1.8,2.5,3.5,5,7,10,14,20].map(v=>`<option value="${v}"${v===shTH(s)?' selected':''}>${fmtMM(v)}</option>`).join('')}${[1.8,2.5,3.5,5,7,10,14,20].includes(shTH(s))?'':`<option selected>${fmtMM(shTH(s))}</option>`}</select></div>
+      <div class="field"><label for="f-ssw">${L('Линия s, мм','Line s, mm')}</label><select id="f-ssw">${[0.35,0.5,0.7,1,1.4,2].map(v=>`<option value="${v}"${v===shSW(s)?' selected':''}>${fmtMM(v)}</option>`).join('')}${[0.35,0.5,0.7,1,1.4,2].includes(shSW(s))?'':`<option selected>${fmtMM(shSW(s))}</option>`}</select></div><p class="muted" style="margin-bottom:6px">${L('Сколько миллиметров детали в одной клетке сетки. По этому масштабу считаются все размеры листа. Высота цифр (со стрелками) и толщина линий тоже в миллиметрах чертежа — при любом масштабе они в той же пропорции к детали: 1 клетка = 1 мм — натуральная величина, 1:1. Линии, прямоугольники, окружности и размеры — в меню «Механика».','How many millimetres of the part one grid cell stands for. All dimensions on this sheet are computed with it. Digits (with arrows) and line thickness are in drawing millimetres too, so they keep their size relative to the part at any scale: 1 cell = 1 mm is real size, 1:1. Lines, rectangles, circles and dimensions are in the “Mechanics” menu.')}</p>`:''}
       <div class="row"><button id="b-sleft"${sheetNo(s.id)===1?' disabled':''} title="${L('Сдвинуть лист раньше','Move sheet earlier')}">${L('◀ Влево','◀ Left')}</button><button id="b-sright"${sheetNo(s.id)===S.sheets.length?' disabled':''} title="${L('Сдвинуть лист дальше','Move sheet later')}">${L('Вправо ▶','Right ▶')}</button><button id="b-sdel"${S.sheets.length<2?' disabled':''}>${L('✕ Удалить лист','✕ Delete sheet')}</button></div>
       <p class="muted" style="margin-top:4px">${L('Порядок листов можно менять и перетаскиванием вкладок.','Sheets can also be reordered by dragging the tabs.')}</p>
       ${EN()?`<p class="muted" style="margin-top:8px">One device on different sheets — one reference designation. Select a valve, pressure switch or relay and add its second representation on another sheet. Blue links “→ sh.N” under the item lead there.</p>
@@ -1332,6 +1351,7 @@ function renderProps(){
     n.addEventListener('focus',push,{once:true});
     n.addEventListener('input',()=>{ s.name=n.value; renderTabs(); save(); });
     document.getElementById('f-skind').onchange=e=>{ push(); s.kind=e.target.value; render(); save(); };
+    [['f-sth','th'],['f-ssw','sw']].forEach(([id,k])=>{ const i=document.getElementById(id); if(i) i.onchange=()=>{ const v=parseFloat(String(i.value).replace(',','.')); if(v>0){ push(); s[k]=v; } render(); save(); }; });
     const smm=document.getElementById('f-smm'); if(smm) smm.addEventListener('change',()=>{ const v=parseFloat(smm.value.replace(',','.'));
       if(v>0&&v<=100000){ push(); s.mm=v; } render(); save(); });
     const sc=document.getElementById('f-scode');
@@ -1476,14 +1496,15 @@ function addComp(type){
   const here=curComps(); while(here.some(c=>c.x===x&&c.y===y)){ x+=G*2; y+=G*2; }
   const c={id:'c'+(S.n++), type, sheet:S.cur, x, y, rot:0, ref:pre+(Math.max(0,...nums)+1), val:t.val};
   if(type==='RECT'||MECH.has(type)){ c.ref=''; c.val=''; }
-  if(type==='CIRC') c.r=60;
-  if(type==='DIML'){ c.dx=120; c.dy=0; c.off=-40; c.mode='h'; c.x=snap(x-60); }
-  if(type==='RECTM'){ c.w=120; c.h=80; c.ls='main'; c.x=snap(x-60); c.y=snap(y-40); }
-  if(type==='LINE'){ c.dx=120; c.dy=0; c.ls='main'; c.x=snap(x-60); }
+  const mf=MECH.has(type)?mk(c).th/10:1, sg=v=>Math.max(G,snap(v*mf));   // мелкий масштаб листа — новые фигуры крупнее в px
+  if(type==='CIRC') c.r=sg(60);
+  if(type==='DIML'){ c.dx=sg(120); c.dy=0; c.off=-sg(40); c.mode='h'; c.x=snap(x-c.dx/2); }
+  if(type==='RECTM'){ c.w=sg(120); c.h=sg(80); c.ls='main'; c.x=snap(x-c.w/2); c.y=snap(y-c.h/2); }
+  if(type==='LINE'){ c.dx=sg(120); c.dy=0; c.ls='main'; c.x=snap(x-c.dx/2); }
   if(RDIM.has(type)){ c.ang=type==='DIMD'?-40:-20; const o=sel&&sel.k==='c'&&comp(sel.id);
     if(o&&o.type==='CIRC'){ c.of=o.id; c.x=o.x; c.y=o.y; c.r=cr(o);   // к выделенной окружности; второй размер — под другим углом
       if(S.comps.some(q=>q.of===o.id&&q.id!==c.id)) c.ang=c.type==='DIMD'?-140:30; }
-    else c.r=40; }
+    else c.r=sg(40); }
   if(type==='XT'){ // новая клемма продолжает последний клеммник: то же обозначение, следующий номер
     const last=[...S.comps].reverse().find(o=>o.type==='XT'); c.ref=last?last.ref:pre+'1'; if(last) c.val=last.val;
     c.tn=String(Math.max(0,...S.comps.filter(o=>o.type==='XT'&&o.ref===c.ref).map(o=>parseInt(o.tn,10)||0))+1); }
@@ -1754,7 +1775,7 @@ function exportSVG(){
   const body=curWires().map(w=>wireSVG(w,true)).join('')+dotsSVG()+bomSVG()+compsSVG(CS,true);
   sel=keep;
   return `<svg xmlns="${NS}" viewBox="${x0} ${y0} ${x1-x0} ${y1-y0}" width="${x1-x0}" height="${y1-y0}">
-<style>.sym{fill:none;stroke:#000;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.sym .fill,.dot{fill:#000}.sym .thick{stroke-width:5}.sym .thin{stroke-width:1}.w{fill:none;stroke:#000;stroke-width:2}.lbl{font:12px monospace;fill:#000}.lbl.v{fill:#444;font-size:11px}.sym .pp,.pipe .w{stroke:#1f5fa8;stroke-width:4}.dot.pipe{fill:#1f5fa8}.sym .pf{fill:#1f5fa8;stroke:#1f5fa8}.bomg .bg{fill:#fff}.bt{fill:none;stroke:#000;stroke-width:1}.bt.o{stroke-width:2}.lbl.bth{font-size:11px;font-weight:bold}.lbl.xr{font-size:10px;fill:#1f5fa8}.lbl.tn{font-size:9px;fill:#555}.lbl.nm{font-weight:bold}.sym .pa,.air .w{stroke:#1a7a57;stroke-width:3}.dot.air{fill:#1a7a57}.sym .paf{fill:#1a7a57;stroke:#1a7a57}.sym .paw{fill:#fff;stroke:#1a7a57;stroke-width:2}</style>
+<style>.sym{fill:none;stroke:#000;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.sym .fill,.dot{fill:#000}.sym .thick{stroke-width:5}.sym .thin{stroke-width:var(--thin,1px)}.w{fill:none;stroke:#000;stroke-width:2}.lbl{font:12px monospace;fill:#000}.lbl.v{fill:#444;font-size:11px}.sym .pp,.pipe .w{stroke:#1f5fa8;stroke-width:4}.dot.pipe{fill:#1f5fa8}.sym .pf{fill:#1f5fa8;stroke:#1f5fa8}.bomg .bg{fill:#fff}.bt{fill:none;stroke:#000;stroke-width:1}.bt.o{stroke-width:2}.lbl.bth{font-size:11px;font-weight:bold}.lbl.xr{font-size:10px;fill:#1f5fa8}.lbl.tn{font-size:9px;fill:#555}.lbl.nm{font-weight:bold}.sym .pa,.air .w{stroke:#1a7a57;stroke-width:3}.dot.air{fill:#1a7a57}.sym .paf{fill:#1a7a57;stroke:#1a7a57}.sym .paw{fill:#fff;stroke:#1a7a57;stroke-width:2}</style>
 <rect x="${x0}" y="${y0}" width="${x1-x0}" height="${y1-y0}" fill="#fff"/>${body}</svg>`;
 }
 document.getElementById('b-io').onclick=()=>{ io.hidden=false; ioT.value=JSON.stringify(S,null,1); msg(L('Текущая схема в JSON. Можно вставить свой JSON и загрузить.','Current diagram as JSON. You can paste your own JSON and load it.')); };
