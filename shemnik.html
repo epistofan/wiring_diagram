@@ -419,7 +419,7 @@ const T = {
         dyn:Object.assign(c=>circLayout(c),{key:c=>JSON.stringify([c.r,c.ax])})},
   DIML:{name:'Размер линейный', pre:'', val:'', k:'Мх', pins:[], box:[-32,-24,64,36], noLabel:true, noIo:true,
         d:'<path class="thin" d="M-30 10V-16M30 10V-16M-30 -8H30"/><path class="fill thin" d="M-30 -8l9 -3v6zM30 -8l-9 -3v6z"/><text x="0" y="-12" text-anchor="middle" class="fill" style="stroke:none;font:italic 11px sans-serif">50</text>',
-        dyn:Object.assign(c=>dimLLayout(c),{key:c=>JSON.stringify([c.dx,c.dy,c.off,c.mode,c.val,c.tol,mmPP(c),LANG])})},
+        dyn:Object.assign(c=>dimLLayout(c),{key:c=>JSON.stringify([c.dx,c.dy,c.off,c.mode,c.rang,c.val,c.tol,mmPP(c),LANG])})},
   DIMD:{name:'Размер Ø', pre:'', val:'', k:'Мх', pins:[], box:[-24,-24,48,48], noLabel:true, noIo:true,
         d:'<circle cx="0" cy="0" r="16" style="opacity:.45"/><path class="thin" d="M-11.3 11.3L22 -22"/><path class="fill thin" d="M11.3 -11.3l-8.5 2.1l4.2 4.2zM-11.3 11.3l8.5 -2.1l-4.2 -4.2z"/>',
         dyn:Object.assign(c=>dimRLayout(c,true),{key:c=>JSON.stringify([c.r,c.ang,c.of,c.val,c.tol,mmPP(c),LANG])})},
@@ -637,11 +637,12 @@ function circLayout(c){
     hs:[['r',k,-k,L('Радиус','Radius')]]};
 }
 // линейный размер: p1 — точка элемента (0,0), p2 — (dx,dy); off — вынос размерной линии от p1 по нормали;
-// mode: h — горизонтальный, v — вертикальный, al — параллельный отрезку
+// mode: h — горизонтальный, v — вертикальный, al — параллельный отрезку, r — повёрнутый (направление измерения rang°)
 function dimLGeom(c){
-  const dx=num(c.dx,120), dy=num(c.dy,0), mode=c.mode==='v'||c.mode==='al'?c.mode:'h';
+  const dx=num(c.dx,120), dy=num(c.dy,0), mode=['v','al','r'].includes(c.mode)?c.mode:'h';
   let ux=1, uy=0;
   if(mode==='v'){ ux=0; uy=1; } else if(mode==='al'){ const l=Math.hypot(dx,dy); if(l>0.5){ ux=dx/l; uy=dy/l; } }
+  else if(mode==='r'){ const a=num(c.rang,0)*Math.PI/180; ux=Math.cos(a); uy=Math.sin(a); }
   const nx=-uy, ny=ux, off=num(c.off,-40);
   const a=[nx*off, ny*off], s2=off-(dx*nx+dy*ny), b=[dx+nx*s2, dy+ny*s2];
   return {dx,dy,ux,uy,nx,ny,a,b,len:Math.abs(dx*ux+dy*uy),mode};
@@ -678,6 +679,24 @@ function dimRLayout(c, dia){
 // размер Ø/R, привязанный к окружности (c.of): стоит в её центре и берёт её радиус
 function syncDims(){ S.comps.forEach(c=>{ if(!RDIM.has(c.type)||!c.of) return; const o=comp(c.of);
   if(o&&o.type==='CIRC'&&sheetOf(o)===sheetOf(c)){ c.x=o.x; c.y=o.y; c.r=cr(o); } else delete c.of; }); }
+// поворот размера на th° (по часовой, как у элементов): линейный — целиком вокруг середины измеряемого отрезка,
+// Ø/R — размерная линия вокруг центра. Кратные 90° снова дают горизонтальный/вертикальный, прочие — повёрнутый.
+const r2=v=>Math.round(v*100)/100, nang=a=>{ a=r2(((a%360)+360)%360); return a>180?a-360:a; };
+const dimDir=c=>{ const g=dimLGeom(c); return nang(Math.atan2(g.uy,g.ux)*180/Math.PI); };
+function rotDim(c,th){
+  if(RDIM.has(c.type)){ c.ang=nang(num(c.ang,-40)+th); return; }
+  if(c.type!=='DIML') return;
+  const g=dimLGeom(c), dir=dimDir(c), t=th*Math.PI/180, co=Math.cos(t), si=Math.sin(t);
+  const mx=g.dx/2, my=g.dy/2, rot=(x,y)=>[mx+(x-mx)*co-(y-my)*si, my+(x-mx)*si+(y-my)*co];
+  const p1=rot(0,0), p2=rot(g.dx,g.dy);
+  c.x=r2(c.x+p1[0]); c.y=r2(c.y+p1[1]); c.dx=r2(p2[0]-p1[0]); c.dy=r2(p2[1]-p1[1]);
+  if(g.mode==='al') return;   // направление идёт за отрезком само
+  const a=nang(dir+th), off=num(c.off,-40);
+  delete c.rang;
+  if(a===0) c.mode='h'; else if(a===90) c.mode='v';
+  else if(a===180){ c.mode='h'; c.off=-off; } else if(a===-90){ c.mode='v'; c.off=-off; }   // направление развернулось — нормаль тоже
+  else { c.mode='r'; c.rang=a; }
+}
 // привязка точек размера: центр и четверти окружностей, концы других размеров; иначе — шаг 10 px
 function snapPt(x,y,skip){
   let best=null, bd=12*Math.max(0.6,vb.w/(svg.clientWidth||vb.w));
@@ -716,7 +735,7 @@ function migrate(d){
     if(!c.sheet||!d.sheets.some(s=>s.id===c.sheet)) c.sheet=d.sheets[0].id;
     c.x=num(c.x); c.y=num(c.y); c.rot=[0,90,180,270].includes(num(c.rot))?num(c.rot):0;
     ['ref','val','note','io','pos','lead','tn','pl','pr','mode','tol'].forEach(k=>{ if(c[k]!==undefined) c[k]=str(c[k]); });
-    ['tx','ty','pw','pp','ndi','ndq','nai','naq','nch','base','nt','rw','rh','r','dx','dy','off','ang'].forEach(k=>{ if(c[k]!==undefined) c[k]=num(c[k]); });
+    ['tx','ty','pw','pp','ndi','ndq','nai','naq','nch','base','nt','rw','rh','r','dx','dy','off','ang','rang'].forEach(k=>{ if(c[k]!==undefined) c[k]=num(c[k]); });
     if(c.dash!==undefined) c.dash=!!c.dash;
     if(c.ax!==undefined) c.ax=!!c.ax;
     if(c.of!==undefined&&!ID_RE.test(String(c.of))) delete c.of;
@@ -1128,14 +1147,16 @@ function mechProps(c,el){
       +`<div class="row" style="margin:6px 0"><button id="b-addD">${L('＋ Размер Ø','＋ Ø dimension')}</button><button id="b-addR">${L('＋ Размер R','＋ R dimension')}</button></div>`
       +`<p class="muted">${L('Ручка на контуре — радиус. Двигать — за контур или центр. Центр и четверти окружности притягивают концы линейных размеров.','The handle on the outline sets the radius. Move it by the outline or centre. The centre and quadrant points attract linear dimension ends.')}</p>`;
   } else if(c.type==='DIML'){ const g=dimLGeom(c);
-    h+=sel_('f-dmode',L('Тип','Type'),[['h',L('горизонтальный','horizontal')],['v',L('вертикальный','vertical')],['al',L('параллельный','aligned')]],g.mode)
+    h+=sel_('f-dmode',L('Тип','Type'),[['h',L('горизонтальный','horizontal')],['v',L('вертикальный','vertical')],['al',L('параллельный','aligned')],['r',L('повёрнутый','rotated')]],g.mode)
+      +fld('f-drot',L('Поворот, °','Rotation, °'),String(dimDir(c)))
       +fld('f-dlen',L('Длина, мм','Length, mm'),raw(g.len*k))+txtF(fmtMM(g.len*k))
-      +`<p class="muted">${L('Ручки: концы — точки, между которыми размер (притягиваются к центру и четвертям окружностей), средняя — вынос размерной линии. Длина считается по масштабу листа; «Длина» двигает конец.','Handles: the ends are the measured points (they snap to circle centres and quadrants), the middle one is the dimension line offset. Length follows the sheet scale; “Length” moves the end point.')}</p>`;
+      +`<p class="muted">${L('Ручки: концы — точки, между которыми размер (притягиваются к центру и четвертям окружностей), средняя — вынос размерной линии. Длина считается по масштабу листа; «Длина» двигает конец. <kbd>R</kbd> или «Повернуть» — поворот на 90° вокруг середины, любой угол — в поле «Поворот».','Handles: the ends are the measured points (they snap to circle centres and quadrants), the middle one is the dimension line offset. Length follows the sheet scale; “Length” moves the end point. <kbd>R</kbd> or “Rotate” turns it by 90° about the middle, any angle — in the “Rotation” field.')}</p>`;
   } else { const dia=c.type==='DIMD', o=c.of&&comp(c.of), v=(dia?2:1)*cr(c)*k;
     h+=(o?`<p class="muted" style="margin-bottom:6px">${L('Привязан к окружности','Attached to a circle')} ⌀${fmtMM(2*cr(o)*k)}. ${L('Тяни размер — меняется угол.','Drag the dimension to change its angle.')}</p><div class="row" style="margin-bottom:6px"><button id="b-unof">${L('Отвязать','Detach')}</button></div>`
           :fld('f-dr',dia?L('Диаметр, мм','Diameter, mm'):L('Радиус, мм','Radius, mm'),raw(v)))
+      +fld('f-dang',L('Угол, °','Angle, °'),String(nang(num(c.ang,-40))))
       +txtF((dia?'⌀':'R')+fmtMM(v))
-      +`<p class="muted">${L('Ручка на конце полки — угол. Чтобы размер шёл за окружностью, добавь его кнопкой в свойствах окружности или выдели окружность и выбери размер в меню.','The handle at the end sets the angle. To make the dimension follow a circle, add it from the circle properties, or select the circle and pick the dimension in the menu.')}</p>`;
+      +`<p class="muted">${L('Ручка на конце полки или <kbd>R</kbd> (шаг 45°) — угол. Чтобы размер шёл за окружностью, добавь его кнопкой в свойствах окружности или выдели окружность и выбери размер в меню.','The handle at the end or <kbd>R</kbd> (45° steps) sets the angle. To make the dimension follow a circle, add it from the circle properties, or select the circle and pick the dimension in the menu.')}</p>`;
   }
   h+=`<p class="muted" style="margin-top:6px">${L('Масштаб листа','Sheet scale')}: ${L('1 клетка','1 cell')} = ${fmtMM(sheetMM(curSheet()))} ${L('мм','mm')}. ${L('Меняется в свойствах листа (клик по пустому месту).','Set in the sheet properties (click empty space).')}</p>`;
   el.innerHTML=h;
@@ -1144,7 +1165,9 @@ function mechProps(c,el){
   on('f-md','change',i=>{ const v=pnum(i.value); if(v>0){ push(); c.r=v/2/k; } commit(); });
   on('f-dr','change',i=>{ const v=pnum(i.value); if(v>0){ push(); c.r=(c.type==='DIMD'?v/2:v)/k; } commit(); });
   on('f-ax','change',i=>{ push(); if(i.value) delete c.ax; else c.ax=false; commit(); });
-  on('f-dmode','change',i=>{ push(); c.mode=i.value; commit(); });
+  on('f-dmode','change',i=>{ push(); if(i.value==='r'&&c.mode!=='r') c.rang=dimDir(c); c.mode=i.value; commit(); });
+  on('f-drot','change',i=>{ const v=pnum(i.value); if(Number.isFinite(v)){ const d=nang(v-dimDir(c)); if(d){ push(); rotDim(c,d); } } commit(); });
+  on('f-dang','change',i=>{ const v=pnum(i.value); if(Number.isFinite(v)){ const d=nang(v-num(c.ang,-40)); if(d){ push(); rotDim(c,d); } } commit(); });
   on('f-dlen','change',i=>{ const v=pnum(i.value); if(!(v>0)){ commit(); return; } push(); const g=dimLGeom(c), px=v/k;
     if(g.mode==='h') c.dx=(num(c.dx,120)<0?-1:1)*px; else if(g.mode==='v') c.dy=(num(c.dy,0)<0?-1:1)*px;
     else { const l=Math.hypot(g.dx,g.dy); if(l>0.5){ c.dx=g.dx/l*px; c.dy=g.dy/l*px; } else { c.dx=px; c.dy=0; } }
@@ -1408,7 +1431,8 @@ function delSel(){
   else S.wires=S.wires.filter(w=>w.id!==sel.id);
   sel=null; render(); save();
 }
-function rotSel(){ if(!(sel&&sel.k==='c')) return; const c=comp(sel.id); if(c.type==='NOTE'||MECH.has(c.type)) return; push(); c.rot=(c.rot+90)%360; render(); save(); }
+function rotSel(){ if(!(sel&&sel.k==='c')) return; const c=comp(sel.id); if(c.type==='NOTE'||c.type==='CIRC') return;
+  if(MECH.has(c.type)){ push(); rotDim(c, RDIM.has(c.type)?45:90); render(); save(); return; } push(); c.rot=(c.rot+90)%360; render(); save(); }
 function addWire(a,b){
   if(a===b) return;
   const A=a.split(':'), B=b.split(':');
