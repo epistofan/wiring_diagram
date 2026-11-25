@@ -559,7 +559,8 @@ function contactPos(c){
   return 1;
 }
 const pinLabel=(c,p)=>RC.has(c.type)?String(contactPos(c))+p.slice(-1):c.type==='XT'?xtNo(c):c.type==='XTM'?p.slice(0,-1):pinTxt(p);
-const repLabel=o=>RC.has(o.type)?`${T[o.type].short} ${pinLabel(o,T[o.type].pins[0][0])}-${pinLabel(o,T[o.type].pins[1][0])}`:(T[o.type].short||T[o.type].name);
+const XS_EN={XTM:'ts'};   // сокращения только для подписей ссылок на листе (EN): «terminal strip» не влезает
+const repLabel=o=>RC.has(o.type)?`${T[o.type].short} ${pinLabel(o,T[o.type].pins[0][0])}-${pinLabel(o,T[o.type].pins[1][0])}`:((EN()&&XS_EN[o.type])||T[o.type].short||T[o.type].name);
 const kindAllows=(kind,type)=>{ const t=T[type]; if(t.k==='*') return true; if(t.k==='Мх'||kind==='Мх') return t.k===kind; if(kind==='М') return t.k==='М'||!!t.m; return kind==='С' ? !t.split : t.k===kind; };
 // ——— клеммы ———
 // номер клеммы на принципиальной схеме (tn — любая строка: 1, 2, PE…)
